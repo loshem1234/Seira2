@@ -171,3 +171,39 @@ fidelity.
 imported the reversion errors inside the try block, after the Unity
 check — a Unity failure would then NameError in the except clause
 instead of halting cleanly. Hoisted; the full suite caught it.
+
+## Phase 5 — Instruments
+
+**D31. Fifth chained store; escalation blocks, not just logs.** Art. 26
+verbatim: three local-feedback runs on one (instrument, task_type)
+without an intervening clean run auto-escalates, tagged
+instrument-initiated — and the task-type then refuses execution until a
+paradigm_revised event citing that escalation exists. "Ought to
+terminate in rest" made operational: further local patching is
+structurally impossible once non-convergence is established.
+
+**D32. Spawning rights are a required field, not a policy (Art. 35).**
+Every spawn demands a psyche_judgment_ref; surfacing a need is its own
+event, never a spawn. Depth enforced at 3 (Art. 34), named honestly as
+an Intellect-grade parameter awaiting Phase 6 extraction rather than
+buried as a constant.
+
+**D33. Derivation is mandatory on every execution (Art. 5, 14).**
+Paradigm version + licensing judgment recorded per execution; cause is
+instrumental by construction; output_ref into the Corpus required —
+untraceable output "is not an act of Seira's at all."
+
+**D34. Skills are shared, versioned, judgment-attributed (Art. 37).**
+The lighter mechanism implemented as exactly that: one required
+judgment ref, no full proposal review. Executions cite skill id +
+current version; stale-version and retired-skill citations refused so
+derivation stays true.
+
+**D35. Health is real now (Art. 44).** Convergence vs escalation
+reported from actual execution records; the Phase 4 "n/a" honesty
+discharged.
+
+**D36. Phase 5b named, not faked.** Wiring Hermes's live
+subagent_lifecycle so real subagent runs create execution records
+automatically is documented follow-on work; the governance layer does
+not pretend the wiring exists.

@@ -127,3 +127,17 @@ Architect-side CLI:
 Note for Intellect-target proposals: promotion IS ratification — same
 gate, same typed phrase, and the proposal id is preserved in the
 Intellect version it produces.
+
+## 9. Phase 5 — Instruments and skills
+
+Seira's tool surface is now ten: the Psyche and proposal loops plus
+instrument spawn / execute / paradigm-revise and skill authorize. The
+convergence discipline runs itself: honest local_feedback reporting
+escalates at three, blocks the task-type, and unblocks only through a
+paradigm revision citing the escalation — watch `health` for the
+convergence/escalation ratio.
+
+Phase 5b (follow-on, in the fork): wrap agent/subagent_lifecycle.py so
+each real subagent run auto-creates an execution record with its
+output_ref, and route spawn through seira_core so Art. 35 holds for
+live delegation too.
