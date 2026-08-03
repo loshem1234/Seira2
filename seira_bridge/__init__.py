@@ -131,6 +131,79 @@ ENGAGE_SCHEMA = {
 }
 
 
+PROPOSE_SCHEMA = {
+    "name": "seira_propose_establishment",
+    "description": (
+        "Open a proposal to establish one of Seira's own provisional Psyche "
+        "entries (Art. 24-25). This begins the falsification process: the "
+        "entry becomes established only after surviving a deliberate attempt "
+        "to break it against historical Corpus data. origin_ref must point at "
+        "the genuine reversion this arose from — a real moment of turning "
+        "back on herself, not mere repetition of instances."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "entry_id": {"type": "string", "description": "The provisional Psyche entry."},
+            "case": {"type": "string", "description": "The case for establishment."},
+            "origin_type": {"type": "string", "enum": ["reversion", "self_audit"]},
+            "origin_ref": {"type": "string"},
+            "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["entry_id", "case", "origin_type", "origin_ref", "evidence_refs"],
+    },
+}
+
+ATTEMPT_SCHEMA = {
+    "name": "seira_falsification_attempt",
+    "description": (
+        "Record a deliberate attempt to falsify one of Seira's own open "
+        "proposals, rehearsed against historical Corpus records — never "
+        "against the live conversation (Art. 39). State the method honestly "
+        "and report the outcome truthfully: a failed attempt is as legitimate "
+        "a finding as a survived one, and pretending survival would corrupt "
+        "the only mechanism by which her self-knowledge means anything."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "proposal_id": {"type": "string"},
+            "method": {"type": "string", "description": "How the attempt tried to break it."},
+            "corpus_refs": {"type": "array", "items": {"type": "string"},
+                            "description": "Historical Corpus records rehearsed against."},
+            "outcome": {"type": "string", "enum": ["survived", "failed"]},
+            "notes": {"type": "string"},
+        },
+        "required": ["proposal_id", "method", "corpus_refs", "outcome"],
+    },
+}
+
+CONCLUDE_SCHEMA = {
+    "name": "seira_proposal_conclude",
+    "description": (
+        "Bring one of Seira's own psyche-standing proposals to a terminal "
+        "state (Art. 25). 'promote' establishes the entry (requires a "
+        "survived attempt AND a consistency check against current Intellect "
+        "— both real, both on record). 'reject' requires a failed attempt on "
+        "record. 'withdraw' sets it aside voluntarily with a reason. "
+        "Consistency checks are recorded via result='consistent'/'inconsistent' "
+        "using action='consistency'."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "proposal_id": {"type": "string"},
+            "action": {"type": "string",
+                       "enum": ["promote", "reject", "withdraw", "consistency"]},
+            "reason": {"type": "string", "description": "Required for withdraw."},
+            "result": {"type": "string", "enum": ["consistent", "inconsistent"],
+                       "description": "Required for consistency."},
+        },
+        "required": ["proposal_id", "action"],
+    },
+}
+
+
 class SeiraPsycheProvider(MemoryProvider):
     """Psyche as the fork's memory: character in the prompt, self-creation
     through tools, Corpus left to Hermes where it belongs."""
@@ -174,7 +247,10 @@ class SeiraPsycheProvider(MemoryProvider):
             return ""
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [RECORD_SCHEMA, RECALL_SCHEMA, ENGAGE_SCHEMA]
+        # Deliberately absent: Intellect promotion (Architect-only, Art. 27)
+        # and Dispensation (awaits Phase 5 Instrument guardrails).
+        return [RECORD_SCHEMA, RECALL_SCHEMA, ENGAGE_SCHEMA,
+                PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         try:
@@ -210,6 +286,54 @@ class SeiraPsycheProvider(MemoryProvider):
                     return json.dumps({
                         "ok": True, "entry_id": rec["entry_id"], "weight": rec["weight"],
                     })
+                if tool_name == "seira_propose_establishment":
+                    from seira_core.reversion import ReversionStore
+                    rec = ReversionStore().open_proposal(
+                        target="psyche_standing", kind="establishment",
+                        content=args["case"], entry_id=args["entry_id"],
+                        origin={"type": args["origin_type"], "ref": args["origin_ref"]},
+                        evidence_refs=list(args.get("evidence_refs") or []),
+                    )
+                    return json.dumps({
+                        "ok": True, "proposal_id": rec["proposal_id"],
+                        "next": "Attempt falsification against historical Corpus "
+                                "records, then a consistency check, then promote.",
+                    })
+                if tool_name == "seira_falsification_attempt":
+                    from seira_core.reversion import ReversionStore
+                    ReversionStore().record_attempt(
+                        args["proposal_id"], args["method"],
+                        list(args.get("corpus_refs") or []),
+                        args["outcome"], args.get("notes", ""),
+                    )
+                    return json.dumps({"ok": True, "outcome": args["outcome"]})
+                if tool_name == "seira_proposal_conclude":
+                    from seira_core.reversion import ReversionStore
+                    rstore = ReversionStore()
+                    action = args["action"]
+                    pid = args["proposal_id"]
+                    if action == "consistency":
+                        rec = rstore.record_consistency_check(
+                            pid, args.get("result", ""), args.get("reason", "")
+                        )
+                        return json.dumps({"ok": True,
+                                           "intellect_version": rec["intellect_version"]})
+                    if action == "promote":
+                        p = rstore.proposal(pid)
+                        if p["target"] != "psyche_standing":
+                            return json.dumps({
+                                "ok": False,
+                                "error": "Intellect promotion is ratification and "
+                                         "belongs to the Architect alone (Art. 27).",
+                            })
+                        rstore.promote_psyche(pid, basis_ref=pid)
+                        return json.dumps({"ok": True, "established": p["entry_id"]})
+                    if action == "reject":
+                        rstore.reject(pid)
+                        return json.dumps({"ok": True, "state": "rejected"})
+                    if action == "withdraw":
+                        rstore.withdraw(pid, args.get("reason", ""))
+                        return json.dumps({"ok": True, "state": "withdrawn"})
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
         return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})
