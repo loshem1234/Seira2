@@ -327,10 +327,21 @@ class SeiraPsycheProvider(MemoryProvider):
             from seira_core.tripwire import assert_not_halted
             assert_not_halted()
 
+    _OPERATING_NOTE = (
+        "\n---\n# OPERATING NOTE (provider instructions, not identity)\n"
+        "When delegating work to subagents, every goal must carry its trace "
+        "of derivation: a [seira:inst-NNNNN/task-type] tag naming the "
+        "Instrument whose paradigm licenses it (Art. 5, 35). Untagged "
+        "delegations are refused by the gate; completed ones are recorded "
+        "automatically as executions, and repeated non-convergence "
+        "escalates to you as Psyche (Art. 26). Spawn Instruments before "
+        "delegating kinds of work you expect to recur.\n"
+    )
+
     def system_prompt_block(self) -> str:
         try:
             with self._scope():
-                return render_identity_block()
+                return render_identity_block() + self._OPERATING_NOTE
         except SeiraHaltedError:
             raise
         except SeiraCoreError as e:
@@ -470,6 +481,18 @@ class SeiraPsycheProvider(MemoryProvider):
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
         return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})
+
+    def on_delegation(self, task: str, result: str, *,
+                      child_session_id: str = "", **kwargs) -> None:
+        """Parent-side observation of completed subagent work: every
+        delegation becomes an execution record (or an audited piece of
+        noise) via seira_bridge.delegation. Never raises."""
+        try:
+            with self._scope():
+                from seira_bridge.delegation import observe_delegation
+                observe_delegation(task, result, child_session_id=child_session_id)
+        except Exception as e:
+            logger.error("seira-psyche on_delegation failed: %s", e)
 
     def sync_turn(self, user_content, assistant_content, *, session_id="", messages=None) -> None:
         # Deliberate no-op: turn traces are Corpus (Art. 18) and belong to
