@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Speak with her{% endblock %}
+{% block body %}
+<div style="max-width:52rem;margin:0 auto">
+  <div class="msgs" id="msgs">
+    {% for m in history %}
+    <div class="msg {{ m.role }}"><div class="who">
+      {{ 'You' if m.role == 'user' else 'Seira' }}</div>{{ m.content }}</div>
+    {% endfor %}
+  </div>
+  <form class="stack" id="chatform">
+    <textarea id="message" required placeholder="Speak with her."></textarea>
+    <button type="submit">Send</button>
+  </form>
+</div>
+<script>
+const form = document.getElementById('chatform');
+const msgs = document.getElementById('msgs');
+function add(role, who, text, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + role + (cls ? ' ' + cls : '');
+  d.innerHTML = '<div class="who"></div>';
+  d.querySelector('.who').textContent = who;
+  d.appendChild(document.createTextNode(text));
+  msgs.appendChild(d); d.scrollIntoView();
+}
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const ta = document.getElementById('message');
+  const text = ta.value.trim(); if (!text) return;
+  add('user', 'You', text); ta.value = '';
+  const r = await fetch('/api/chat', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message:text})});
+  const data = await r.json();
+  if (!data.ok) { add('assistant', 'Sanctum', data.error || 'Something failed.'); return; }
+  (data.tool_events || []).forEach(t =>
+    add('assistant', 'her records', t.tool + ' → written', 'toolnote'));
+  add('assistant', 'Seira', data.reply);
+});
+</script>
+{% endblock %}

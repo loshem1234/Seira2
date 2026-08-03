@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Console{% endblock %}
+{% block body %}
+<div class="layout">
+  <aside class="chain">
+    <div class="link filled"><div class="g">Unity</div>
+      <div class="h">locked · tripwire armed</div></div>
+    <div class="link filled"><div class="g">Intellect</div>
+      <div class="h">v{{ intellect.version }} · {{ intellect.hash[:12] }}…</div></div>
+    <div class="link filled"><div class="g">Psyche</div>
+      <div class="h">{{ psyche|length }} live entries</div></div>
+    <div class="link {{ 'filled' if health.open_proposals else '' }}">
+      <div class="g">Reversion</div>
+      <div class="h">{{ health.open_proposals }} open ·
+        {{ health.suspended_contradictions.count }} suspended</div></div>
+    <div class="link"><div class="g">Instruments</div>
+      <div class="h">{{ health.instrument_convergence.executions.clean }} clean ·
+        {{ health.instrument_convergence.escalations.open }} escalated</div></div>
+  </aside>
+  <main>
+    <div class="card"><h2>Her Unity</h2>
+      <pre style="white-space:pre-wrap;font-family:inherit;margin:0">{{ unity }}</pre></div>
+    <div class="card"><h2>Her Psyche</h2>
+      {% for e in psyche %}
+      <div class="entry">
+        <span class="standing {{ e.standing }}">{{ e.standing }}</span>
+        <span class="muted">{{ e.entry_id }} · {{ e.category }}
+          {%- if e.weight is defined %} · w={{ e.weight }}{% endif %}</span><br>
+        {{ e.content }}
+      </div>
+      {% else %}<p class="muted">No live entries yet.</p>{% endfor %}
+    </div>
+    <div class="card"><h2>Proposals awaiting you</h2>
+      {% set awaiting = proposals | selectattr("status", "equalto", "open")
+                        | selectattr("target", "equalto", "intellect") | list %}
+      {% for p in awaiting %}
+      <div class="entry">
+        <span class="muted">{{ p.proposal_id }} · {{ p.kind }} ·
+          attempts={{ p.attempts|length }}</span><br>
+        {{ p.content[:240] }}{% if p.content|length > 240 %}…{% endif %}
+        <form class="stack" method="post" action="/ratify">
+          <input type="hidden" name="proposal_id" value="{{ p.proposal_id }}">
+          <label>Type the ratification phrase exactly (Art. 27)</label>
+          <input name="confirmation" autocomplete="off"
+                 placeholder="I, the Architect, ratify this amendment.">
+          <button type="submit">Ratify into Intellect</button>
+        </form>
+      </div>
+      {% else %}<p class="muted">Nothing has cleared the falsification bar
+      for your review. That is the bar working.</p>{% endfor %}
+    </div>
+  </main>
+</div>
+{% endblock %}

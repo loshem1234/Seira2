@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Create account' if mode == 'signup' else 'Log in' }}{% endblock %}
+{% block nav %}{% endblock %}
+{% block body %}
+<div class="card" style="max-width:26rem;margin:3rem auto">
+  <h2>{{ 'Found your Seira' if mode == 'signup' else 'Return to your Seira' }}</h2>
+  <p class="muted">One account, one Architect, one Seira. Wholly yours;
+    no shared template, no tier above her.</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form class="stack" method="post" action="/{{ mode }}">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required autocomplete="email">
+    <label for="password">Password{{ ' (10+ characters)' if mode == 'signup' else '' }}</label>
+    <input id="password" name="password" type="password" required minlength="10">
+    <button type="submit">{{ 'Create account' if mode == 'signup' else 'Log in' }}</button>
+  </form>
+  <p class="muted">{% if mode == 'signup' %}Already founded? <a href="/login">Log in</a>
+  {% else %}New here? <a href="/signup">Create an account</a>{% endif %}</p>
+</div>
+{% endblock %}
