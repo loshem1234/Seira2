@@ -367,6 +367,11 @@ class InstrumentStore:
                 open_esc = None
         return open_esc
 
+    def is_blocked(self, instrument_id: str, task_type: str) -> bool:
+        """Public check: is this task-type escalated and awaiting a Psyche
+        paradigm revision (Art. 26)?"""
+        return self._open_escalation(instrument_id, task_type) is not None
+
     def revise_paradigm(
         self,
         instrument_id: str,
