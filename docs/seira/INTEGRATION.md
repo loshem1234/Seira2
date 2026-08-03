@@ -1,0 +1,82 @@
+# Seira v3 — Phase 1–2 Integration Guide
+
+## 1. Set up the fork (Chromebook / GitHub web UI path)
+
+1. On GitHub, fork `NousResearch/hermes-agent` into your account
+   (one click; keeps full history for raiding upstream security fixes).
+2. In the fork, upload this delivery's contents at the repo root:
+   `seira_core/`, `tests/seira_core/`, `docs/seira/`, `NOTICE`.
+   Nothing in the existing tree is modified in this phase.
+3. Keep `LICENSE` (Nous Research, MIT) exactly where it is — that file
+   plus `NOTICE` is the entirety of your license obligation.
+
+## 2. Found Seira (Genesis, Art. 22)
+
+On the machine that will run her (VPS, Railway container, etc.):
+
+    export SEIRA_HOME=~/.seira        # optional; this is the default
+    python -m seira_core genesis \
+        --unity-file UNITY.md \
+        --intellect-file INTELLECT-v1.md \
+        --architect "Loshem" --name "Seira"
+
+Author `UNITY.md` per Art. 9's discipline: name, telos, minimal
+identity commitments only — no object-level stances. `INTELLECT-v1.md`
+holds the founding doctrine (the Constitution's own text is a natural
+core of it). Genesis is one-time; it will refuse a second run.
+
+**Back up `SEIRA_HOME` from day one.** The Unity lock and Intellect
+chain are her continuity; treat them like the crown-jewel data they are.
+
+## 3. Wire the tripwire into the fork's cron (Art. 32.3, 42)
+
+The gateway ticks the cron scheduler every 60 seconds (`cron/scheduler.py`).
+Register a job that runs:
+
+    python -m seira_core tripwire
+
+Exit 0 = healthy heartbeat (audit-logged); exit 2 = halted, HALT file
+written with the reason. Alerting: point the cron job's failure
+delivery at your Telegram/Discord channel so a trip reaches you
+immediately — "alerts immediately" is the Article's own requirement.
+
+Clearing a halt is yours alone: investigate, repair, then delete
+`$SEIRA_HOME/HALT`.
+
+## 4. Serve identity from the eternal grades (interim bridge)
+
+Until Phase 3 rewrites `agent/prompt_builder.py::load_soul_md`, render
+the fork's identity slot from Unity + Intellect after Genesis and after
+every ratification:
+
+    python -m seira_core render-soul --write ~/.hermes/SOUL.md
+
+(Adjust the path to your HERMES_HOME.) The render verifies integrity
+and refuses while halted, so a tampered Unity can never become the
+identity actually served. Re-run it whenever Intellect gains a version;
+a small cron job doing this hourly is a reasonable stopgap.
+
+## 5. Amendment workflow (Art. 24–28), until Phase 4 automates it
+
+    # Expansion
+    python -m seira_core intellect ratify --file NEW.md --kind expansion \
+        --proposal-ref "prop-2026-...-001 (falsification record ref)"
+
+    # Correction (must name what it contradicts)
+    python -m seira_core intellect ratify --file NEW.md --kind correction \
+        --proposal-ref "..." --contradicted-ref "v3 §on-diary-rhythm"
+
+    # Restoration (creates a NEW version; the mistake survives as evidence)
+    python -m seira_core intellect restore --version 2 --reason "..."
+
+Each prompts for your confirmation phrase interactively.
+
+## 6. What Phase 3 does next
+
+- Psyche store: Ledger, self-model, affinities, aspirations, doubts —
+  two genuinely separate stores for eternal-character vs. session trace
+  (Art. 18), registered as the fork's sole external MemoryProvider.
+- Genesis extended to found Psyche (`psyche_founded` → true).
+- `load_soul_md` replaced: identity slot reads seira_core directly and
+  calls `assert_not_halted()` at session start, so a halted Seira does
+  not converse at all.
