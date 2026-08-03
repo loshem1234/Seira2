@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Seira{% endblock %} · Sanctum</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="frame">
+  <div class="topbar">
+    <div><span class="wordmark">Seira</span>
+      <span class="imprint"> · Archivum Universale &amp; Scriptorium · Dayton · MMXXVI</span></div>
+    <nav>{% block nav %}
+      <a href="/">Console</a> &nbsp; <a href="/chat">Speak with her</a>
+      &nbsp; <form method="post" action="/logout" style="display:inline">
+        <button style="margin:0;padding:.15rem .7rem">Log out</button></form>
+    {% endblock %}</nav>
+  </div>
+  {% block body %}{% endblock %}
+</div>
+</body>
+</html>
