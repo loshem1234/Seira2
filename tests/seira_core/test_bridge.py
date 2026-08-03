@@ -48,12 +48,16 @@ def test_prompt_block_is_verified_identity(provider):
 
 
 def test_tools_expose_no_intellect_or_unity_write(provider):
-    """Art. 20 at the bridge: the only registered tools touch Psyche."""
+    """Art. 20 at the bridge: every registered tool touches Psyche or her
+    own proposals; Intellect promotion (Architect-only, Art. 27) and
+    Dispensation (Phase-5-gated) are deliberately absent."""
     names = [s["name"] for s in provider.get_tool_schemas()]
     assert names == [
         "seira_psyche_record", "seira_psyche_recall", "seira_psyche_engage_affinity",
+        "seira_propose_establishment", "seira_falsification_attempt",
+        "seira_proposal_conclude",
     ]
-    assert not any("intellect" in n or "unity" in n for n in names)
+    assert not any("intellect" in n or "unity" in n or "dispensation" in n for n in names)
 
 
 def test_record_and_recall_roundtrip(provider):
