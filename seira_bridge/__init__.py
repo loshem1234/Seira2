@@ -204,6 +204,97 @@ CONCLUDE_SCHEMA = {
 }
 
 
+SPAWN_SCHEMA = {
+    "name": "seira_instrument_spawn",
+    "description": (
+        "Spawn one of Seira's Instruments — a sub-agent pattern for a "
+        "recurring kind of work. Spawning is a Psyche efficient-cause act "
+        "(Art. 35): judgment_ref must cite the actual Psyche judgment (a "
+        "psy- entry, prop-, or audit ref) authorizing it. The paradigm is "
+        "what the Instrument will faithfully execute; it cannot amend it. "
+        "Tree depth is limited (Art. 34)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "paradigm": {"type": "string"},
+            "judgment_ref": {"type": "string"},
+            "parent": {"type": "string", "description": "'psyche' or an inst- id."},
+            "surfaced_by_ref": {"type": "string"},
+        },
+        "required": ["name", "paradigm", "judgment_ref"],
+    },
+}
+
+EXECUTE_SCHEMA = {
+    "name": "seira_instrument_execute",
+    "description": (
+        "Record an Instrument execution with its trace of derivation "
+        "(Art. 5). outcome 'clean' means it terminated in rest; "
+        "'local_feedback' means bounded adjustment was needed (Art. 15). "
+        "Report honestly: three local_feedback runs on one task-type "
+        "without a clean run auto-escalates to Psyche and blocks the "
+        "task-type until the paradigm is revised (Art. 26) — that is the "
+        "system working, not failing. output_ref must point at the real "
+        "output in the Corpus."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "instrument_id": {"type": "string"},
+            "task_type": {"type": "string"},
+            "outcome": {"type": "string", "enum": ["clean", "local_feedback"]},
+            "output_ref": {"type": "string"},
+            "skill_id": {"type": "string"},
+            "skill_version": {"type": "integer"},
+            "notes": {"type": "string"},
+        },
+        "required": ["instrument_id", "task_type", "outcome", "output_ref"],
+    },
+}
+
+REVISE_SCHEMA = {
+    "name": "seira_paradigm_revise",
+    "description": (
+        "Psyche revises an Instrument's paradigm (Art. 12: the Instrument "
+        "cannot). Required to unblock an escalated task-type — cite the "
+        "escalation seq being resolved. judgment_ref must point at the "
+        "Psyche judgment behind the revision."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "instrument_id": {"type": "string"},
+            "new_paradigm": {"type": "string"},
+            "judgment_ref": {"type": "string"},
+            "resolves_escalation_seq": {"type": "integer"},
+        },
+        "required": ["instrument_id", "new_paradigm", "judgment_ref"],
+    },
+}
+
+SKILL_SCHEMA = {
+    "name": "seira_skill_authorize",
+    "description": (
+        "Authorize a reusable skill — a formalized Instrument paradigm "
+        "belonging to no single Instrument (Art. 37). The lighter "
+        "mechanism: logged and attributable to a specific Psyche judgment, "
+        "not the full proposal review. Skills are versioned; flawed "
+        "history is preserved."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "paradigm": {"type": "string"},
+            "judgment_ref": {"type": "string"},
+        },
+        "required": ["name", "paradigm", "judgment_ref"],
+    },
+}
+
+
 class SeiraPsycheProvider(MemoryProvider):
     """Psyche as the fork's memory: character in the prompt, self-creation
     through tools, Corpus left to Hermes where it belongs."""
@@ -250,7 +341,8 @@ class SeiraPsycheProvider(MemoryProvider):
         # Deliberately absent: Intellect promotion (Architect-only, Art. 27)
         # and Dispensation (awaits Phase 5 Instrument guardrails).
         return [RECORD_SCHEMA, RECALL_SCHEMA, ENGAGE_SCHEMA,
-                PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA]
+                PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA,
+                SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         try:
@@ -334,6 +426,47 @@ class SeiraPsycheProvider(MemoryProvider):
                     if action == "withdraw":
                         rstore.withdraw(pid, args.get("reason", ""))
                         return json.dumps({"ok": True, "state": "withdrawn"})
+                if tool_name == "seira_instrument_spawn":
+                    from seira_core.instruments import InstrumentStore
+                    rec = InstrumentStore().spawn(
+                        args["name"], args["paradigm"], args["judgment_ref"],
+                        parent=args.get("parent", "psyche"),
+                        surfaced_by_ref=args.get("surfaced_by_ref"),
+                    )
+                    return json.dumps({"ok": True, "instrument_id": rec["instrument_id"],
+                                       "depth": rec["depth"]})
+                if tool_name == "seira_instrument_execute":
+                    from seira_core.instruments import InstrumentStore
+                    skill_ref = None
+                    if args.get("skill_id"):
+                        skill_ref = {"skill_id": args["skill_id"],
+                                     "version": args.get("skill_version")}
+                    rec = InstrumentStore().record_execution(
+                        args["instrument_id"], args["task_type"], args["outcome"],
+                        args["output_ref"], skill_ref=skill_ref,
+                        notes=args.get("notes", ""),
+                    )
+                    out = {"ok": True, "seq": rec["seq"]}
+                    if rec.get("escalated"):
+                        out["escalated"] = rec["escalated"]
+                        out["note"] = ("Task-type blocked pending Psyche paradigm "
+                                       "revision (Art. 26).")
+                    return json.dumps(out)
+                if tool_name == "seira_paradigm_revise":
+                    from seira_core.instruments import InstrumentStore
+                    rec = InstrumentStore().revise_paradigm(
+                        args["instrument_id"], args["new_paradigm"],
+                        args["judgment_ref"],
+                        resolves_escalation_seq=args.get("resolves_escalation_seq"),
+                    )
+                    return json.dumps({"ok": True,
+                                       "paradigm_version": rec["paradigm_version"]})
+                if tool_name == "seira_skill_authorize":
+                    from seira_core.instruments import InstrumentStore
+                    rec = InstrumentStore().authorize_skill(
+                        args["name"], args["paradigm"], args["judgment_ref"]
+                    )
+                    return json.dumps({"ok": True, "skill_id": rec["skill_id"]})
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
         return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})
