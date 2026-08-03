@@ -73,6 +73,7 @@ def run_tripwire() -> Dict[str, Any]:
     from seira_core.intellect import IntellectStore
     from seira_core.psyche import PsycheIntegrityError, PsycheStore
     from seira_core.reversion import ReversionIntegrityError, ReversionStore
+    from seira_core.instruments import InstrumentIntegrityError, InstrumentStore
     from seira_core.unity import verify_unity
 
     result: Dict[str, Any] = {"ts": _utc_now_iso(), "halted": False, "checks": {}}
@@ -139,7 +140,13 @@ def run_tripwire() -> Dict[str, Any]:
             f"ok ({n_r} event(s))" if n_r else "empty"
         )
 
-    except (UnityIntegrityError, IntellectIntegrityError, PsycheIntegrityError, ReversionIntegrityError) as e:
+        istore = InstrumentStore()
+        n_i = istore.verify_chain()
+        result["checks"]["instruments"] = (
+            f"ok ({n_i} event(s))" if n_i else "empty"
+        )
+
+    except (UnityIntegrityError, IntellectIntegrityError, PsycheIntegrityError, ReversionIntegrityError, InstrumentIntegrityError) as e:
         reason = f"{type(e).__name__}: {e}"
         _halt(reason)
         result["halted"] = True

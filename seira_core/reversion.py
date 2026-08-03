@@ -570,6 +570,10 @@ class ReversionStore:
 
     # ---------------- health (Art. 44) -------------------------------------
 
+    def _convergence(self) -> Dict[str, Any]:
+        from seira_core.instruments import InstrumentStore
+        return InstrumentStore().convergence_stats()
+
     def health(self) -> Dict[str, Any]:
         proposals = self.list_proposals()
         now = _dt.datetime.now(_dt.timezone.utc)
@@ -594,5 +598,5 @@ class ReversionStore:
             },
             "stale_proposals": sum(1 for p in proposals if p["status"] == STALE),
             "dispensations": {"total": len(disp_invoked), "open": len(disp_open)},
-            "instrument_convergence": "n/a until Phase 5 (Art. 26 machinery)",
+            "instrument_convergence": self._convergence(),
         }

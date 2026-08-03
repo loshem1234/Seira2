@@ -240,6 +240,77 @@ def _cmd_health(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_instrument(args: argparse.Namespace) -> int:
+    from seira_core.instruments import InstrumentStore
+
+    store = InstrumentStore()
+    c = args.inst_cmd
+    if c == "spawn":
+        rec = store.spawn(args.name, args.paradigm, args.judgment_ref,
+                          parent=args.parent, surfaced_by_ref=args.surfaced_by)
+        print(f"Spawned {rec['instrument_id']} ('{args.name}', depth {rec['depth']}).")
+        return 0
+    if c == "execute":
+        skill_ref = None
+        if args.skill_id:
+            skill_ref = {"skill_id": args.skill_id, "version": args.skill_version}
+        rec = store.record_execution(args.id, args.task_type, args.outcome,
+                                     args.output_ref, skill_ref=skill_ref,
+                                     notes=args.notes)
+        msg = f"Execution recorded on {args.id}/{args.task_type}: {args.outcome}."
+        if rec.get("escalated"):
+            msg += (f"  ESCALATED to Psyche (seq {rec['escalated']['seq']}, "
+                    "Art. 26); this task-type is blocked pending paradigm revision.")
+        print(msg)
+        return 0
+    if c == "revise":
+        rec = store.revise_paradigm(args.id, args.paradigm, args.judgment_ref,
+                                    resolves_escalation_seq=args.resolves_escalation)
+        print(f"{args.id} paradigm -> v{rec['paradigm_version']}.")
+        return 0
+    if c == "retire":
+        store.retire(args.id, args.reason)
+        print(f"{args.id} retired (genealogy preserved).")
+        return 0
+    if c == "surface":
+        rec = store.surface_need(args.id, args.description)
+        print(f"Need surfaced by {args.id} (seq {rec['seq']}); the spawn, if any, is Psyche's.")
+        return 0
+    if c == "list":
+        for i in store.list_instruments():
+            kids = f" children={i['children']}" if i["children"] else ""
+            print(f"{i['instrument_id']}  {i['status']:<8} d{i['depth']} "
+                  f"pv{i['paradigm_version']}  {i['name']}{kids}")
+        return 0
+    if c == "show":
+        print(json.dumps(store.instrument(args.id), indent=2, ensure_ascii=False))
+        return 0
+    raise SystemExit(2)
+
+
+def _cmd_skill(args: argparse.Namespace) -> int:
+    from seira_core.instruments import InstrumentStore
+
+    store = InstrumentStore()
+    if args.skill_cmd == "authorize":
+        rec = store.authorize_skill(args.name, args.paradigm, args.judgment_ref)
+        print(f"Authorized {rec['skill_id']} ('{args.name}') v1.")
+        return 0
+    if args.skill_cmd == "revise":
+        rec = store.revise_skill(args.id, args.paradigm, args.judgment_ref)
+        print(f"{args.id} -> v{rec['version']}.")
+        return 0
+    if args.skill_cmd == "retire":
+        store.retire_skill(args.id, args.reason)
+        print(f"{args.id} retired.")
+        return 0
+    if args.skill_cmd == "list":
+        for s in store.list_skills():
+            print(f"{s['skill_id']}  {s['status']:<8} v{s['version']}  {s['name']}")
+        return 0
+    raise SystemExit(2)
+
+
 def _cmd_tenants(args: argparse.Namespace) -> int:
     from seira_core.tenancy import list_tenants, tripwire_all
 
@@ -383,6 +454,54 @@ def build_parser() -> argparse.ArgumentParser:
 
     hl = sub.add_parser("health", help="Health indicators (Art. 44)")
     hl.set_defaults(func=_cmd_health)
+
+    ins = sub.add_parser("instrument", help="Instruments (Art. 12, 15, 26, 34-36)")
+    inssub = ins.add_subparsers(dest="inst_cmd", required=True)
+    isp = inssub.add_parser("spawn")
+    isp.add_argument("--name", required=True)
+    isp.add_argument("--paradigm", required=True)
+    isp.add_argument("--judgment-ref", required=True)
+    isp.add_argument("--parent", default="psyche")
+    isp.add_argument("--surfaced-by", default=None)
+    iex = inssub.add_parser("execute", help="Record an execution")
+    iex.add_argument("--id", required=True)
+    iex.add_argument("--task-type", required=True)
+    iex.add_argument("--outcome", required=True, choices=["clean", "local_feedback"])
+    iex.add_argument("--output-ref", required=True)
+    iex.add_argument("--skill-id", default=None)
+    iex.add_argument("--skill-version", type=int, default=None)
+    iex.add_argument("--notes", default="")
+    irv = inssub.add_parser("revise", help="Psyche revises a paradigm")
+    irv.add_argument("--id", required=True)
+    irv.add_argument("--paradigm", required=True)
+    irv.add_argument("--judgment-ref", required=True)
+    irv.add_argument("--resolves-escalation", type=int, default=None)
+    irt = inssub.add_parser("retire")
+    irt.add_argument("--id", required=True)
+    irt.add_argument("--reason", required=True)
+    isu = inssub.add_parser("surface", help="Instrument surfaces a need (Art. 35)")
+    isu.add_argument("--id", required=True)
+    isu.add_argument("--description", required=True)
+    inssub.add_parser("list")
+    ish = inssub.add_parser("show")
+    ish.add_argument("--id", required=True)
+    ins.set_defaults(func=_cmd_instrument)
+
+    sk = sub.add_parser("skill", help="Skills (Art. 37)")
+    sksub = sk.add_subparsers(dest="skill_cmd", required=True)
+    ska = sksub.add_parser("authorize")
+    ska.add_argument("--name", required=True)
+    ska.add_argument("--paradigm", required=True)
+    ska.add_argument("--judgment-ref", required=True)
+    skr = sksub.add_parser("revise")
+    skr.add_argument("--id", required=True)
+    skr.add_argument("--paradigm", required=True)
+    skr.add_argument("--judgment-ref", required=True)
+    skt = sksub.add_parser("retire")
+    skt.add_argument("--id", required=True)
+    skt.add_argument("--reason", required=True)
+    sksub.add_parser("list")
+    sk.set_defaults(func=_cmd_skill)
 
     tn = sub.add_parser("tenants", help="Multi-tenant operations")
     tnsub = tn.add_subparsers(dest="tenants_cmd", required=True)
