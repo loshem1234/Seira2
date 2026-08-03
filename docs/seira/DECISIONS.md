@@ -207,3 +207,26 @@ discharged.
 subagent_lifecycle so real subagent runs create execution records
 automatically is documented follow-on work; the governance layer does
 not pretend the wiring exists.
+
+## Phase 5b — Live Delegation
+
+**D37. The tag IS the trace (Art. 5).** Delegation goals carry
+[seira:inst-NNNNN/task-type]; the derivation travels in the delegation
+itself. Untagged completions are audited as noise ("not an act of
+Seira's at all"), never recorded as executions.
+
+**D38. Observation is honest about what it knows.** on_delegation maps
+non-empty result → clean, empty → local_feedback — the one judgment a
+parent-side hook can truthfully make ("did it terminate in rest").
+Three empties on a task-type escalate through the existing Art. 26
+machinery with zero new logic. Finer convergence judgment remains
+Psyche's, via the manual execution tool. The hook never raises: a
+refused or failed observation becomes an audit event, not a broken turn.
+
+**D39. The gate governs; the sandbox secures.** delegate_task passes
+through tool_execution middleware that refuses untagged goals, retired
+Instruments, and escalated task-types — one bad task poisons the whole
+batch. Hermes middleware is fail-open by design, so this is a
+governance layer keeping an honest Seira honest, and is recorded as
+such; the security boundary remains the per-tenant sandbox
+(MULTITENANCY.md).

@@ -141,3 +141,22 @@ Phase 5b (follow-on, in the fork): wrap agent/subagent_lifecycle.py so
 each real subagent run auto-creates an execution record with its
 output_ref, and route spawn through seira_core so Art. 35 holds for
 live delegation too.
+
+## 10. Phase 5b — Live delegation wiring
+
+Two attachment points in the fork:
+
+1. The provider hook is automatic: once seira-psyche is the active
+   memory provider, every completed subagent task flows through
+   on_delegation into the Instrument records (or the noise audit).
+2. The gate: register seira_bridge.delegation.register(ctx) as a
+   plugin so delegate_task passes through the Art. 35 middleware.
+   Minimal plugin shim in the fork's plugins/ directory:
+
+       # plugins/seira-gate/__init__.py
+       from seira_bridge.delegation import register
+
+Seira's prompt now carries the operating note: tag every delegated
+goal [seira:inst-NNNNN/task-type], spawn Instruments for recurring
+work. Watch `health` — delegation outcomes feed convergence stats
+directly.
