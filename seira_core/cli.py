@@ -163,6 +163,83 @@ def _cmd_psyche(args: argparse.Namespace) -> int:
     raise SystemExit(2)
 
 
+def _cmd_proposal(args: argparse.Namespace) -> int:
+    from seira_core.reversion import ReversionStore
+
+    store = ReversionStore()
+    c = args.proposal_cmd
+    if c == "open":
+        rec = store.open_proposal(
+            target=args.target, kind=args.kind, content=args.content,
+            origin={"type": args.origin_type, "ref": args.origin_ref},
+            evidence_refs=args.evidence,
+            contradicted_ref=args.contradicted_ref, entry_id=args.entry_id,
+        )
+        print(f"Opened {rec['proposal_id']} ({args.kind} -> {args.target}).")
+        return 0
+    if c == "attempt":
+        rec = store.record_attempt(args.id, args.method, args.corpus_refs,
+                                   args.outcome, args.notes)
+        print(f"Attempt recorded on {args.id}: {args.outcome}.")
+        return 0
+    if c == "consistency":
+        rec = store.record_consistency_check(args.id, args.result, args.notes)
+        print(f"Consistency check on {args.id}: {args.result} "
+              f"(Intellect v{rec['intellect_version']}).")
+        return 0
+    if c == "promote":
+        p = store.proposal(args.id)
+        if p["target"] == "psyche_standing":
+            store.promote_psyche(args.id, basis_ref=args.basis_ref or args.id)
+            print(f"{args.id} promoted: {p['entry_id']} is now established.")
+        else:
+            confirmation = _confirm_architect()
+            rec = store.promote_intellect(args.id, architect_confirmation=confirmation)
+            print(f"{args.id} promoted into Intellect v{rec['detail']['intellect_version']}.")
+        return 0
+    if c == "reject":
+        store.reject(args.id); print(f"{args.id} rejected."); return 0
+    if c == "suspend":
+        store.suspend_pair(args.id, args.rival)
+        print(f"{args.id} and {args.rival} suspended as a contradiction pair.")
+        return 0
+    if c == "stale":
+        store.mark_stale(args.id); print(f"{args.id} marked stale."); return 0
+    if c == "withdraw":
+        store.withdraw(args.id, args.reason); print(f"{args.id} withdrawn."); return 0
+    if c == "show":
+        print(json.dumps(store.proposal(args.id), indent=2, ensure_ascii=False)); return 0
+    if c == "list":
+        for p in store.list_proposals(status=args.status):
+            print(f"{p['proposal_id']}  {p['status']:<10} {p['kind']:<13} -> {p['target']}  "
+                  f"attempts={len(p['attempts'])}")
+        return 0
+    raise SystemExit(2)
+
+
+def _cmd_dispensation(args: argparse.Namespace) -> int:
+    from seira_core.reversion import ReversionStore
+
+    store = ReversionStore()
+    if args.disp_cmd == "invoke":
+        rec = store.invoke_dispensation(args.action, args.conditions_ref, args.evidence)
+        print(f"{rec['dispensation_id']} invoked; mandatory retroactive proposal "
+              f"{rec['retroactive_proposal_id']} opened (Art. 31).")
+        return 0
+    if args.disp_cmd == "close":
+        store.close_dispensation(args.id)
+        print(f"{args.id} closed.")
+        return 0
+    raise SystemExit(2)
+
+
+def _cmd_health(args: argparse.Namespace) -> int:
+    from seira_core.reversion import ReversionStore
+
+    print(json.dumps(ReversionStore().health(), indent=2, ensure_ascii=False))
+    return 0
+
+
 def _cmd_tenants(args: argparse.Namespace) -> int:
     from seira_core.tenancy import list_tenants, tripwire_all
 
@@ -252,6 +329,60 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--id", required=True)
     pr.add_argument("--reason", required=True)
     ps.set_defaults(func=_cmd_psyche)
+
+    pr2 = sub.add_parser("proposal", help="Reversion proposals (Art. 24-25)")
+    prsub = pr2.add_subparsers(dest="proposal_cmd", required=True)
+    po = prsub.add_parser("open", help="Open a proposal")
+    po.add_argument("--target", required=True, choices=["intellect", "psyche_standing"])
+    po.add_argument("--kind", required=True, choices=["correction", "expansion", "establishment"])
+    po.add_argument("--content", required=True)
+    po.add_argument("--origin-type", required=True,
+                    choices=["reversion", "instrument_escalation", "self_audit", "architect"])
+    po.add_argument("--origin-ref", required=True)
+    po.add_argument("--evidence", required=True, nargs="+")
+    po.add_argument("--contradicted-ref", default=None)
+    po.add_argument("--entry-id", default=None)
+    pat = prsub.add_parser("attempt", help="Record a falsification attempt (Art. 25.2, 39)")
+    pat.add_argument("--id", required=True)
+    pat.add_argument("--method", required=True)
+    pat.add_argument("--corpus-refs", required=True, nargs="+")
+    pat.add_argument("--outcome", required=True, choices=["survived", "failed"])
+    pat.add_argument("--notes", default="")
+    pc = prsub.add_parser("consistency", help="Record an Intellect consistency check (Art. 25.3)")
+    pc.add_argument("--id", required=True)
+    pc.add_argument("--result", required=True, choices=["consistent", "inconsistent"])
+    pc.add_argument("--notes", default="")
+    pp = prsub.add_parser("promote", help="Promote a cleared proposal")
+    pp.add_argument("--id", required=True)
+    pp.add_argument("--basis-ref", default=None, help="psyche_standing target")
+    prj = prsub.add_parser("reject", help="Reject after a failed attempt")
+    prj.add_argument("--id", required=True)
+    psu = prsub.add_parser("suspend", help="Suspend two live survivors as a contradiction pair")
+    psu.add_argument("--id", required=True)
+    psu.add_argument("--rival", required=True)
+    pstale = prsub.add_parser("stale", help="Mark an expansion stale")
+    pstale.add_argument("--id", required=True)
+    pw = prsub.add_parser("withdraw", help="Withdraw voluntarily")
+    pw.add_argument("--id", required=True)
+    pw.add_argument("--reason", required=True)
+    psh = prsub.add_parser("show", help="Show one proposal")
+    psh.add_argument("--id", required=True)
+    pls = prsub.add_parser("list", help="List proposals")
+    pls.add_argument("--status", default=None)
+    pr2.set_defaults(func=_cmd_proposal)
+
+    dp = sub.add_parser("dispensation", help="Dispensations (Art. 30-31)")
+    dpsub = dp.add_subparsers(dest="disp_cmd", required=True)
+    di = dpsub.add_parser("invoke")
+    di.add_argument("--action", required=True)
+    di.add_argument("--conditions-ref", required=True)
+    di.add_argument("--evidence", nargs="+", default=[])
+    dc = dpsub.add_parser("close")
+    dc.add_argument("--id", required=True)
+    dp.set_defaults(func=_cmd_dispensation)
+
+    hl = sub.add_parser("health", help="Health indicators (Art. 44)")
+    hl.set_defaults(func=_cmd_health)
 
     tn = sub.add_parser("tenants", help="Multi-tenant operations")
     tnsub = tn.add_subparsers(dest="tenants_cmd", required=True)

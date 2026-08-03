@@ -72,6 +72,7 @@ def run_tripwire() -> Dict[str, Any]:
     HALT file is written and 'halted' is True."""
     from seira_core.intellect import IntellectStore
     from seira_core.psyche import PsycheIntegrityError, PsycheStore
+    from seira_core.reversion import ReversionIntegrityError, ReversionStore
     from seira_core.unity import verify_unity
 
     result: Dict[str, Any] = {"ts": _utc_now_iso(), "halted": False, "checks": {}}
@@ -131,7 +132,14 @@ def run_tripwire() -> Dict[str, Any]:
         else:
             result["checks"]["psyche"] = "not yet founded"
 
-    except (UnityIntegrityError, IntellectIntegrityError, PsycheIntegrityError) as e:
+        # Reversion store (Phase 4), when present, is guarded the same way.
+        rstore = ReversionStore()
+        n_r = rstore.verify_chain()
+        result["checks"]["reversion"] = (
+            f"ok ({n_r} event(s))" if n_r else "empty"
+        )
+
+    except (UnityIntegrityError, IntellectIntegrityError, PsycheIntegrityError, ReversionIntegrityError) as e:
         reason = f"{type(e).__name__}: {e}"
         _halt(reason)
         result["halted"] = True
