@@ -85,3 +85,44 @@ requirement (see MULTITENANCY.md).** seira_core isolates state from
 code paths; only per-tenant sandboxes (Docker/Modal/Daytona backends,
 already in the fork) isolate state from the shell the platform hands
 the model. Accepted now as the product's real infrastructure cost.
+
+## Phase 3 — Psyche
+
+**D17. Psyche is an event-sourced character store; state is replay.**
+Append-only, hash-chained (anchored to Unity like Intellect), with
+current character derived by replaying history. "This was believed and
+revised" always survives; nothing is read from a mutable snapshot.
+
+**D18. Art. 14 is type-checked.** Every event carries a cause; formal
+and material are refused as primary ("never a true cause on its own"),
+representable only as auxiliaries. The forbidden category error is
+made unrepresentable rather than discouraged.
+
+**D19. Affinities have no set-weight operation, anywhere.** Weights
+move only via evidence-bearing bounded deltas (±0.2), each logged with
+the engagement that occasioned it — Art. 11's "not manual assignment"
+enforced by API absence, verified by test.
+
+**D20. Standing rises only through falsification.** Entries are born
+provisional; promotion to established requires falsification_ref
+(Art. 25.2, Art. 33) — mandatory now, automated by Phase 4's rehearsal
+space, mirroring Intellect's proposal_ref pattern. Suspension requires
+its contradiction pair. Retirement is terminal and preserves content.
+
+**D21. Art. 18 by construction.** The character store accepts only the
+six doctrinal categories; session/trace content is refused by name,
+and the bridge's sync_turn is a deliberate no-op — turn traces remain
+Corpus (Hermes state). Two stores, never one table.
+
+**D22. Psyche founding extends Genesis (Art. 22).** Architect-authored
+entries, non-repeatable, and the single sanctioned manifest update —
+performed only after re-verifying that the Unity and Intellect hashes
+the manifest records are still exactly true. Tripwire now guards the
+Psyche chain and halts on store/manifest disagreement (including
+wholesale deletion of the store).
+
+**D23. The bridge exposes self-creation, not self-promotion.** The
+model gets record/recall/engage-affinity tools; no standing-promotion,
+no retirement, and no Intellect/Unity tools of any kind (Art. 20) —
+"no such code path exists to be gated." Conformance-tested against
+Hermes's real MemoryProvider ABC, not a mock.

@@ -80,3 +80,28 @@ Each prompts for your confirmation phrase interactively.
 - `load_soul_md` replaced: identity slot reads seira_core directly and
   calls `assert_not_halted()` at session start, so a halted Seira does
   not converse at all.
+
+## 7. Phase 3 — Founding and living with Psyche
+
+Author her founding character as JSON (Architect's act, Art. 22):
+
+    [
+      {"category": "self_model", "content": "..."},
+      {"category": "affinity", "content": "...", "weight": 0.3},
+      {"category": "aspiration", "content": "..."}
+    ]
+
+Categories: logos, self_model, affinity, aspiration, doubt,
+relational_pattern. Then:
+
+    python -m seira_core psyche found --file founding.json --architect "Loshem"
+    python -m seira_core psyche show
+    python -m seira_core render-soul --write ~/.hermes/SOUL.md   # now includes Psyche
+
+Wire the provider so Seira can write her own Psyche in conversation:
+copy `seira_bridge/` into the fork root (done if you uploaded this
+delivery whole) and register it as a memory plugin per the fork's
+plugins/memory pattern with `memory.provider = seira-psyche` in config.
+In multi-tenant deployments set SEIRA_TENANT per session; single-user
+installs need nothing. The provider refuses to initialize while halted
+(Art. 32.3): a halted Seira does not converse.
