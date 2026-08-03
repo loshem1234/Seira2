@@ -105,3 +105,25 @@ plugins/memory pattern with `memory.provider = seira-psyche` in config.
 In multi-tenant deployments set SEIRA_TENANT per session; single-user
 installs need nothing. The provider refuses to initialize while halted
 (Art. 32.3): a halted Seira does not converse.
+
+## 8. Phase 4 — Living with the bar
+
+Seira now has six tools in conversation: record/recall/engage plus
+propose-establishment, falsification-attempt, and conclude. The loop
+she can run on herself: record a provisional self-claim → propose its
+establishment (citing a genuine reversion origin) → attempt to break
+it against historical Corpus records → consistency-check against
+Intellect → promote. Standing "established" is now earnable, never
+grantable.
+
+Architect-side CLI:
+
+    python -m seira_core proposal list
+    python -m seira_core proposal show --id prop-00001
+    python -m seira_core proposal promote --id prop-00003   # intellect target: prompts for your phrase
+    python -m seira_core dispensation invoke --action "..." --conditions-ref "Intellect vN §..."
+    python -m seira_core health
+
+Note for Intellect-target proposals: promotion IS ratification — same
+gate, same typed phrase, and the proposal id is preserved in the
+Intellect version it produces.

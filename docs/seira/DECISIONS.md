@@ -126,3 +126,48 @@ model gets record/recall/engage-affinity tools; no standing-promotion,
 no retirement, and no Intellect/Unity tools of any kind (Art. 20) —
 "no such code path exists to be gated." Conformance-tested against
 Hermes's real MemoryProvider ABC, not a mock.
+
+## Phase 4 — The Falsification Bar
+
+**D24. One chained reversion store for proposals and dispensations.**
+Same event-sourced, Unity-anchored, tamper-evident pattern as Intellect
+and Psyche; the tripwire now guards all four chains.
+
+**D25. The bar is checked at promotion, in full (Art. 25).** Promotion
+requires a survived attempt on record, plus a consistency check pinned
+to the hash of the Intellect version current *at promotion time* — if
+Intellect moves after the check, promotion demands a re-check. Evidence
+volume counts for nothing; the attempt is the currency.
+
+**D26. Attempts are historical by construction (Art. 39).** An attempt
+must cite Corpus references; no field exists for a live-conversation
+rehearsal, so the forbidden shortcut is unrepresentable.
+
+**D27. Terminal states carry their own preconditions.** Rejected needs
+a failed attempt actually on record; suspended needs two live survivors
+and blocks both from promotion, linked as a pair on both sides; stale
+is expansion-only per the Article's own definition; withdrawn needs its
+reason. Terminal is terminal — resolution is a new proposal citing the
+old, keeping the record append-only in spirit as well as bytes.
+
+**D28. Two promotion paths, two authorities.** psyche_standing
+proposals promote without the Architect (Art. 33): Seira establishes
+her own character by surviving her own attempts to break it — this is
+the self-creation loop, and it is exposed to her as tools.
+Intellect proposals promote only through IntellectStore's existing
+ratification gate, Architect phrase and all (Art. 27), with the
+proposal_id preserved in the Intellect chain.
+
+**D29. Dispensation is honest about its danger (Art. 30–31).**
+Invocation must cite the Intellect-grade condition authorizing it,
+auto-generates the mandatory retroactive correction proposal in the
+same act, is logged as its own event type never folded into ordinary
+reversion, and cannot close without that proposal. It is CLI-only this
+phase: handing an Intellect-bypass to the live model before the
+Instrument guardrails exist (Phase 5) would be recklessness dressed as
+fidelity.
+
+**D30. A bug caught and named.** The tripwire extension initially
+imported the reversion errors inside the try block, after the Unity
+check — a Unity failure would then NameError in the except clause
+instead of halting cleanly. Hoisted; the full suite caught it.
