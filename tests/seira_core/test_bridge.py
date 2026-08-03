@@ -56,6 +56,8 @@ def test_tools_expose_no_intellect_or_unity_write(provider):
         "seira_psyche_record", "seira_psyche_recall", "seira_psyche_engage_affinity",
         "seira_propose_establishment", "seira_falsification_attempt",
         "seira_proposal_conclude",
+        "seira_instrument_spawn", "seira_instrument_execute",
+        "seira_paradigm_revise", "seira_skill_authorize",
     ]
     assert not any("intellect" in n or "unity" in n or "dispensation" in n for n in names)
 
