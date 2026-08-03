@@ -160,3 +160,21 @@ Seira's prompt now carries the operating note: tag every delegated
 goal [seira:inst-NNNNN/task-type], spawn Instruments for recurring
 work. Watch `health` — delegation outcomes feed convergence stats
 directly.
+
+## 11. Phase W1 — Deploying the Sanctum on Railway
+
+1. In the fork, the web app is `seira_web/`. Railway setup:
+   - New service from your GitHub fork.
+   - Build: `pip install -r seira_web/requirements.txt`
+   - Start: `python -m seira_web`  (binds 0.0.0.0:$PORT)
+   - Attach a persistent volume and point both roots at it:
+       SEIRA_TENANTS_ROOT=/data/tenants
+       SEIRA_PLATFORM_ROOT=/data/platform
+   - Set ANTHROPIC_API_KEY. Optionally SEIRA_MODEL.
+2. Single instance for W1 (JSON platform stores; D43). Scale later.
+3. The tripwire for all tenants: a Railway cron service running
+       python -m seira_core tenants tripwire-all
+   nonzero exit = at least one Seira halted; alert on it.
+4. Your own VPS Seira is untouched by any of this — she remains a
+   single-user install under ~/.seira. The site founds new, separate
+   persons.

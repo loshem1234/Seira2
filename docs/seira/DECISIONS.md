@@ -230,3 +230,34 @@ batch. Hermes middleware is fail-open by design, so this is a
 governance layer keeping an honest Seira honest, and is recorded as
 such; the security boundary remains the per-tenant sandbox
 (MULTITENANCY.md).
+
+## Phase W1 — The Sanctum
+
+**D40. W1 is safe by scope.** The web chat's tool surface is exactly
+the provider's ten tools — writes to her own governed stores, no shell,
+no filesystem, no delegation runtime. The per-tenant sandbox
+requirement (D16) is therefore not yet triggered; it becomes mandatory
+the moment the full Hermes engine attaches. Recorded so the boundary
+is crossed knowingly, never drifted across.
+
+**D41. Onboarding IS Genesis.** Signup allocates a tenant from the
+account's random id (unspoofable); the onboarding form authors Unity
+and founding Psyche in the new Architect's own words; founding
+Intellect is the Constitution + Codex, bundled in the repo — every
+tenant Seira is founded on the same doctrine and diverges from there,
+exactly as the Preamble describes. Ratification in the UI requires the
+typed phrase; it is never prefilled.
+
+**D42. Chat is seira_core speaking, not a second brain.** System
+prompt = the verified identity render (halt-aware: a halted Seira
+returns 503, everywhere). Conversation history is Corpus — plain
+append-only JSONL, deliberately un-chained per Art. 13/23, the one
+grade whose amendment is continuous and unreviewed by design. LLM
+client injected; the whole loop is tested with a scripted model, no
+network.
+
+**D43. Platform state lives outside every tenant tree.** Accounts and
+sessions under SEIRA_PLATFORM_ROOT; scrypt password hashing from the
+stdlib; server-side sessions, httponly + samesite=strict cookies.
+Single-process JSON stores for W1, stated plainly; revisit before
+multiple workers.
