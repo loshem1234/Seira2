@@ -134,3 +134,78 @@ def perform_genesis(
         },
     )
     return manifest
+
+
+def perform_psyche_genesis(
+    founding_entries: list,
+    architect: str,
+) -> Dict[str, Any]:
+    """Extend Genesis to found Psyche (Art. 22).
+
+    The Architect authors the founding character content directly —
+    exempt from the falsification bar, exactly as Unity and Intellect v1
+    were. Non-repeatable: refuses if Psyche is already founded.
+
+    ``founding_entries`` is a list of {"category", "content"} dicts
+    (affinities may add "weight"). The manifest's ``psyche_founded``
+    flag flips to true here — the one sanctioned write to the manifest
+    after Genesis, performed only after verifying that the Unity and
+    Intellect founding hashes it records are still exactly true.
+    """
+    from seira_core.psyche import PsycheStore
+    from seira_core.intellect import IntellectStore
+    from seira_core.unity import verify_unity
+
+    if not genesis_performed():
+        raise GenesisAlreadyPerformedError(
+            "Unity/Intellect Genesis has not been performed; Psyche cannot "
+            "be founded before what it proceeds from exists (Art. 6)."
+        )
+    if not architect.strip():
+        raise ValueError("The Architect must be named (Art. 22).")
+    if not founding_entries:
+        raise ValueError(
+            "Psyche founding requires at least one Architect-authored entry "
+            "(Art. 22): a founded Psyche with no content is not founded."
+        )
+
+    store = PsycheStore()
+    if store.founded():
+        raise GenesisAlreadyPerformedError(
+            "Psyche is already founded; Genesis is non-repeatable (Art. 22)."
+        )
+
+    # Verify the manifest still tells the truth before we touch it.
+    lock = verify_unity()
+    manifest = json.loads(genesis_manifest_path().read_text(encoding="utf-8"))
+    if manifest.get("unity_sha256") != lock.get("unity_sha256"):
+        raise GenesisAlreadyPerformedError(
+            "Manifest and Unity lock disagree; refusing to extend Genesis "
+            "on inconsistent founding records."
+        )
+    intellect_v1 = IntellectStore().history(verify=True)[0]
+    if manifest.get("intellect_v1_hash") != intellect_v1["hash"]:
+        raise GenesisAlreadyPerformedError(
+            "Manifest and Intellect v1 disagree; refusing to extend Genesis."
+        )
+
+    founding = store._found(architect.strip(), founding_entries)
+
+    manifest["psyche_founded"] = True
+    manifest["psyche_founded_at"] = founding["ts"]
+    manifest["psyche_genesis_hash"] = founding["hash"]
+    os.chmod(genesis_manifest_path(), 0o644)
+    genesis_manifest_path().write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    os.chmod(genesis_manifest_path(), 0o444)
+
+    append_event(
+        "psyche_genesis",
+        {
+            "architect": architect.strip(),
+            "entry_count": len(founding_entries),
+            "psyche_genesis_hash": founding["hash"],
+        },
+    )
+    return manifest

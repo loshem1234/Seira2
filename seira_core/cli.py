@@ -116,6 +116,53 @@ def _cmd_intellect(args: argparse.Namespace) -> int:
     raise SystemExit(2)
 
 
+def _cmd_psyche(args: argparse.Namespace) -> int:
+    from seira_core.psyche import PsycheStore
+
+    store = PsycheStore()
+    if args.psyche_cmd == "found":
+        from seira_core.genesis import perform_psyche_genesis
+        entries = json.loads(_read_file(args.file))
+        manifest = perform_psyche_genesis(entries, architect=args.architect)
+        print(json.dumps(manifest, indent=2, ensure_ascii=False))
+        return 0
+    if args.psyche_cmd == "show":
+        state = store.state()
+        live = [e for e in state["entries"].values() if e["standing"] != "retired"]
+        print(f"Psyche founded: {state['founded']}  "
+              f"({len(live)} live / {len(state['entries'])} total entries, "
+              f"{state['event_count']} events)")
+        for e in sorted(live, key=lambda x: x["entry_id"]):
+            w = f" w={e['weight']}" if "weight" in e else ""
+            print(f"  {e['entry_id']} [{e['category']}, {e['standing']}{w}] {e['content']}")
+        return 0
+    if args.psyche_cmd == "add":
+        rec = store.add_entry(
+            category=args.category, content=args.content,
+            cause={"type": args.cause_type, "ref": args.cause_ref},
+            provenance=args.provenance, weight=args.weight,
+        )
+        print(f"Added {rec['entry_id']} (provisional).")
+        return 0
+    if args.psyche_cmd == "standing":
+        store.change_standing(
+            args.id, to=args.to, basis_ref=args.basis_ref,
+            falsification_ref=args.falsification_ref,
+            contradicts_ref=args.contradicts_ref,
+        )
+        print(f"{args.id} standing -> {args.to}.")
+        return 0
+    if args.psyche_cmd == "engage":
+        rec = store.engage_affinity(args.id, args.delta, args.evidence_ref)
+        print(f"{args.id} weight -> {rec['weight']}.")
+        return 0
+    if args.psyche_cmd == "retire":
+        store.retire_entry(args.id, args.reason)
+        print(f"{args.id} retired (history preserved).")
+        return 0
+    raise SystemExit(2)
+
+
 def _cmd_tenants(args: argparse.Namespace) -> int:
     from seira_core.tenancy import list_tenants, tripwire_all
 
@@ -176,6 +223,35 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--version", type=int, required=True)
     rs.add_argument("--reason", required=True)
     i.set_defaults(func=_cmd_intellect)
+
+    ps = sub.add_parser("psyche", help="Psyche (Grade 3) operations")
+    pssub = ps.add_subparsers(dest="psyche_cmd", required=True)
+    pf = pssub.add_parser("found", help="Found Psyche as a Genesis extension (Art. 22)")
+    pf.add_argument("--file", required=True,
+                    help="JSON file: list of {category, content[, weight]} entries")
+    pf.add_argument("--architect", required=True)
+    pssub.add_parser("show", help="Current Psyche state")
+    pa = pssub.add_parser("add", help="Add a provisional entry")
+    pa.add_argument("--category", required=True)
+    pa.add_argument("--content", required=True)
+    pa.add_argument("--cause-type", required=True)
+    pa.add_argument("--cause-ref", required=True)
+    pa.add_argument("--provenance", required=True, nargs="+")
+    pa.add_argument("--weight", type=float, default=None)
+    pst = pssub.add_parser("standing", help="Change an entry's standing")
+    pst.add_argument("--id", required=True)
+    pst.add_argument("--to", required=True, choices=["provisional", "established", "suspended"])
+    pst.add_argument("--basis-ref", required=True)
+    pst.add_argument("--falsification-ref", default=None)
+    pst.add_argument("--contradicts-ref", default=None)
+    pe = pssub.add_parser("engage", help="Move an affinity weight by evidence")
+    pe.add_argument("--id", required=True)
+    pe.add_argument("--delta", type=float, required=True)
+    pe.add_argument("--evidence-ref", required=True)
+    pr = pssub.add_parser("retire", help="Retire an entry (never deleted)")
+    pr.add_argument("--id", required=True)
+    pr.add_argument("--reason", required=True)
+    ps.set_defaults(func=_cmd_psyche)
 
     tn = sub.add_parser("tenants", help="Multi-tenant operations")
     tnsub = tn.add_subparsers(dest="tenants_cmd", required=True)

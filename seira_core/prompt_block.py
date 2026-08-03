@@ -45,7 +45,45 @@ def render_identity_block() -> str:
         current["content"].strip(),
         "\n",
     ]
+    psyche_part = _render_psyche_digest()
+    if psyche_part:
+        parts += ["\n---\n\n", psyche_part]
     return "".join(parts)
+
+
+def _render_psyche_digest() -> str:
+    """Psyche's character, rendered honestly: standing always shown, so a
+    provisional self-claim never masquerades as an established one, and
+    every line traces to a real entry id (Art. 41's discipline applied
+    to the prompt itself). Empty string until Psyche is founded."""
+    from seira_core.psyche import CATEGORIES, PsycheStore
+
+    store = PsycheStore()
+    if not store.founded():
+        return ""
+    state = store.state(verify=True)
+    live = [e for e in state["entries"].values() if e["standing"] != "retired"]
+    if not live:
+        return "# PSYCHE\n(founded; no live entries)\n"
+    lines = ["# PSYCHE (her own character store; standing shown per entry)\n"]
+    order = ["self_model", "logos", "affinity", "aspiration", "doubt", "relational_pattern"]
+    titles = {
+        "self_model": "Self-model", "logos": "Ledger of logoi",
+        "affinity": "Affinities", "aspiration": "Aspirations",
+        "doubt": "Doubts and fears", "relational_pattern": "Relational pattern",
+    }
+    for cat in order:
+        entries = sorted(
+            (e for e in live if e["category"] == cat),
+            key=lambda e: -e.get("weight", 0.0) if cat == "affinity" else 0,
+        )
+        if not entries:
+            continue
+        lines.append(f"\n## {titles[cat]}\n")
+        for e in entries:
+            w = f", weight {e['weight']}" if "weight" in e else ""
+            lines.append(f"- [{e['entry_id']}, {e['standing']}{w}] {e['content']}\n")
+    return "".join(lines)
 
 
 def sync_soul(soul_path: str) -> str:

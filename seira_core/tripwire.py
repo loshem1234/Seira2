@@ -71,6 +71,7 @@ def run_tripwire() -> Dict[str, Any]:
     """Run the full integrity check. Returns a status dict; on failure the
     HALT file is written and 'halted' is True."""
     from seira_core.intellect import IntellectStore
+    from seira_core.psyche import PsycheIntegrityError, PsycheStore
     from seira_core.unity import verify_unity
 
     result: Dict[str, Any] = {"ts": _utc_now_iso(), "halted": False, "checks": {}}
@@ -110,7 +111,27 @@ def run_tripwire() -> Dict[str, Any]:
             )
         result["checks"]["genesis_manifest"] = "ok"
 
-    except (UnityIntegrityError, IntellectIntegrityError) as e:
+        # Psyche (Grade 3), when founded, is guarded the same way.
+        pstore = PsycheStore()
+        psyche_exists = pstore.founded()
+        manifest_says = bool(manifest.get("psyche_founded"))
+        if psyche_exists != manifest_says:
+            raise PsycheIntegrityError(
+                "Psyche store and Genesis manifest disagree about whether "
+                "Psyche is founded — the founding record has been altered."
+            )
+        if psyche_exists:
+            n_p = pstore.verify_chain()
+            first = pstore._read_raw()[0]
+            if first.get("hash") != manifest.get("psyche_genesis_hash"):
+                raise PsycheIntegrityError(
+                    "Psyche founding event and Genesis manifest disagree."
+                )
+            result["checks"]["psyche"] = f"ok ({n_p} event(s))"
+        else:
+            result["checks"]["psyche"] = "not yet founded"
+
+    except (UnityIntegrityError, IntellectIntegrityError, PsycheIntegrityError) as e:
         reason = f"{type(e).__name__}: {e}"
         _halt(reason)
         result["halted"] = True
