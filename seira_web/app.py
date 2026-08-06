@@ -235,6 +235,17 @@ def create_app(llm_client_factory=None) -> FastAPI:
             os.environ.pop("SEIRA_TENANT", None)
         return JSONResponse({"ok": True, **result})
 
+    @app.get("/healthz")
+    def healthz():
+        """Unauthenticated: last-known tripwire sweep across all tenants,
+        for Railway's own health checks and quick eyeballing without SSH."""
+        from seira_core.tenancy import tripwire_all
+        results = tripwire_all()
+        halted = [t for t, r in results.items() if r.get("halted")]
+        status_code = 503 if halted else 200
+        return JSONResponse(
+            {"tenants": len(results), "halted": halted}, status_code=status_code)
+
     return app
 
 
