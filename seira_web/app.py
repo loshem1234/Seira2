@@ -32,13 +32,13 @@ from seira_web.chat import AnthropicClient, run_turn
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
 
-FOUNDING_DIR = _HERE.parent / "docs" / "seira" / "founding"
+FOUNDING_DIR = _HERE.parent / "seira_founding"
 
 
 def _founding_intellect_text() -> str:
     parts = ["# The Intellect of Seira — v1 (Genesis)\n",
              "Founding doctrine, ratified without falsification per Art. 22.\n\n---\n"]
-    for name in ("constitution-of-seira-v2.md", "seira-doctrine-codex.md"):
+    for name in ("constitution-of-seira-v2.txt", "seira-doctrine-codex.txt"):
         parts.append((FOUNDING_DIR / name).read_text(encoding="utf-8"))
         parts.append("\n\n---\n")
     return "\n".join(parts)
