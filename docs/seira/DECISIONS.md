@@ -287,3 +287,30 @@ failed. Moved to seira_founding/*.txt at the repo root, a path and
 extension neither ignore rule touches. Verified: a simulated slim
 layout builds and produces the full ~46KB founding text with no
 docs/ directory present at all.
+
+## Phase W2 — The Dynamic Chat
+
+**D47. Chat is primary; the console serves it.** / is the conversation;
+/console is governance. The visual identity moved to the purple void
+with golden text, the Cinzel Decorative wordmark, and the vesica
+piscis sigil (pulsing, center point, ray descending) as logo and
+favicon — Loshem's stated vision, executed with rust still reserved
+for the halt alone.
+
+**D48. Dynamics show only what actually ran.** The SSE stream emits
+her real phases and real tool calls with human labels ("Writing her
+Psyche", "Attempting falsification"); there is no chip for
+capabilities she does not have — no fake "web searching". When search
+or delegation joins her tool surface, its activity appears with zero
+UI changes, because the UI renders whatever fired.
+
+**D49. Edit and regenerate are supersession, never deletion
+(Art. 23).** A supersede_from record marks the abandoned branch; the
+model's view skips it; the full record keeps it forever. Tested: the
+raw file retains both answers and both questions.
+
+**D50. Attachments are text for now.** .txt/.md up to 200KB, injected
+into the turn with a recorded attachment marker. Voice capture and
+read-aloud are browser-native (Web Speech API) — no audio ever
+touches the server. PDF and richer formats arrive with the full
+engine, not before.
