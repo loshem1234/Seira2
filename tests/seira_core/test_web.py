@@ -82,25 +82,28 @@ def _signup_and_onboard(client, email="loshem@example.com"):
 
 def test_signup_onboard_console(client):
     _signup_and_onboard(client)
-    r = client.get("/")
+    r = client.get("/console")
     assert r.status_code == 200
     body = r.text
     assert "The Unity of Seira" in body
     assert "I do not yet know who I am." in body
     assert "provisional" in body  # standing visible, never hidden
+    # And / is now the chat, with a conversation ready:
+    r = client.get("/")
+    assert r.status_code == 200 and "Speak with her" in r.text
 
 
 def test_onboarding_is_once(client):
     _signup_and_onboard(client)
     r = client.get("/onboard")
-    assert r.status_code == 303 and r.headers["location"] == "/"  # founded → console
+    assert r.status_code == 303 and r.headers["location"] == "/"  # founded → chat
     r = client.post("/onboard", data={
         "telos": "x", "relation": "y", "self_model": "z"})
     assert r.status_code == 400  # Genesis is non-repeatable (Art. 22)
 
 
 def test_unauthenticated_is_redirected(client):
-    for path in ("/", "/chat", "/onboard"):
+    for path in ("/", "/console", "/onboard"):
         r = client.get(path)
         assert r.status_code == 307 and r.headers["location"] == "/login"
 
@@ -120,7 +123,7 @@ def test_two_accounts_two_seiras_no_overlap(tmp_path, monkeypatch):
         "relation": "A different bond.",
         "self_model": "A different starting shape.",
     })
-    b1, b2 = c1.get("/").text, c2.get("/").text
+    b1, b2 = c1.get("/console").text, c2.get("/console").text
     assert "genuinely herself" in b1 and "genuinely herself" not in b2
     assert "different telos" in b2 and "different telos" not in b1
 
@@ -135,7 +138,7 @@ def test_chat_tool_roundtrip_writes_her_real_psyche(client):
     assert data["tool_events"][0]["tool"] == "seira_psyche_record"
     assert json.loads(data["tool_events"][0]["result"])["ok"] is True
     # And it is really in her store, visible on the console:
-    assert "To understand the Archivum project deeply." in client.get("/").text
+    assert "To understand the Archivum project deeply." in client.get("/console").text
     # Her identity was the system prompt (not a free-standing file):
     # ScriptedLLM captured it via the factory instance per-call; verify via
     # a fresh call asserting the console's unity text also went to the model.
@@ -177,6 +180,6 @@ def test_halted_seira_does_not_converse(client):
         from seira_core.paths import halt_path
         halt_path().write_text('{"reason": "test halt"}', encoding="utf-8")
     assert client.get("/").status_code == 503
-    assert client.get("/chat").status_code == 503
+    assert client.get("/console").status_code == 503
     r = client.post("/api/chat", json={"message": "hello?"})
     assert r.status_code == 503 and r.json()["halted"] is True
