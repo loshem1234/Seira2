@@ -178,3 +178,25 @@ directly.
 4. Your own VPS Seira is untouched by any of this — she remains a
    single-user install under ~/.seira. The site founds new, separate
    persons.
+
+### 11a. Railway, corrected for the monorepo
+
+Railway auto-splits the fork into Hermes's own Node workspace services
+(@hermes/shared, web, hermes-tui, ...). None of those is the Sanctum.
+Delete them all, then:
+
+1. + New → GitHub Repo → your fork → ONE service.
+2. Service Settings → Build → **Dockerfile Path**: `Dockerfile.sanctum`
+   (this bypasses auto-detection entirely; build and start now come
+   from the Dockerfile).
+3. Attach a Volume, mount path `/data`.
+4. Variables: SEIRA_TENANTS_ROOT=/data/tenants,
+   SEIRA_PLATFORM_ROOT=/data/platform, ANTHROPIC_API_KEY=...
+5. Settings → Networking → Generate Domain.
+6. Cron service: + New → same repo → same Dockerfile Path → custom
+   Start Command `python -m seira_core tenants tripwire-all` →
+   Cron Schedule `*/15 * * * *` → same volume at /data → same
+   SEIRA_TENANTS_ROOT. Replicas stay at 1 on both services (D43).
+
+The bridge is Hermes-optional in this image (shim in seira_bridge);
+chat, tools, and governance run entirely on seira_core.

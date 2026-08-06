@@ -261,3 +261,11 @@ sessions under SEIRA_PLATFORM_ROOT; scrypt password hashing from the
 stdlib; server-side sessions, httponly + samesite=strict cookies.
 Single-process JSON stores for W1, stated plainly; revisit before
 multiple workers.
+
+**D44. The bridge is Hermes-optional.** seira_bridge falls back to a
+minimal MemoryProvider shim when the Hermes tree is absent, so the
+Sanctum ships as a slim container (Dockerfile.sanctum: seira_core +
+bridge + web + founding docs only) while the same bridge code registers
+as a first-class provider inside the full fork. Verified both ways:
+the suite runs with Hermes on the path; a simulated slim layout builds
+the app without it.
