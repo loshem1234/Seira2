@@ -1,42 +1,205 @@
 {% extends "base.html" %}
 {% block title %}Speak with her{% endblock %}
 {% block body %}
-<div style="max-width:52rem;margin:0 auto">
-  <div class="msgs" id="msgs">
-    {% for m in history %}
-    <div class="msg {{ m.role }}"><div class="who">
-      {{ 'You' if m.role == 'user' else 'Seira' }}</div>{{ m.content }}</div>
+<div class="shell">
+  <aside class="sidebar">
+    <button class="gold newchat" id="newchat">New conversation</button>
+    {% for c in conversations %}
+    <a class="convo {{ 'active' if c.conv_id == active_id else '' }}"
+       href="/?c={{ c.conv_id }}">{{ c.title }}</a>
     {% endfor %}
+  </aside>
+  <div class="chatcol">
+    <div class="msgs" id="msgs">
+      {% for r in history %}
+        {% if r.kind == 'user' %}
+        <div class="msg user" data-id="{{ r.id }}"><div class="who">You</div><span class="body">{{ r.text }}</span>
+          <div class="actions">
+            <button class="iconbtn act-edit">edit</button>
+            <button class="iconbtn act-copy">copy</button>
+          </div></div>
+        {% elif r.kind == 'assistant' %}
+        <div class="msg assistant" data-id="{{ r.id }}"><div class="who">Seira</div><span class="body">{{ r.text }}</span>
+          <div class="actions">
+            <button class="iconbtn act-speak">read aloud</button>
+            <button class="iconbtn act-copy">copy</button>
+            <button class="iconbtn act-regen">regenerate</button>
+          </div></div>
+        {% elif r.kind == 'tool' %}
+        <div class="toolchip">{{ r.label }}</div>
+        {% elif r.kind == 'attachment' %}
+        <div class="toolchip">Received: {{ r.name }}</div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div class="composer">
+      <div class="attachnote" id="attachnote" hidden></div>
+      <div class="composerrow" style="position:relative">
+        <button class="hamburger" id="hamburger" aria-label="More options"
+                aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="tray" id="tray">
+          <label for="fileinput">Attach document (.txt, .md)</label>
+          <input id="fileinput" type="file" accept=".txt,.md,.markdown" hidden>
+          <button id="voicebtn" type="button">Voice capture</button>
+        </div>
+        <textarea id="message" placeholder="Speak with her." rows="2"></textarea>
+        <button class="gold" id="send">Send</button>
+      </div>
+    </div>
   </div>
-  <form class="stack" id="chatform">
-    <textarea id="message" required placeholder="Speak with her."></textarea>
-    <button type="submit">Send</button>
-  </form>
 </div>
+
 <script>
-const form = document.getElementById('chatform');
+const CONV = {{ active_id | tojson }};
 const msgs = document.getElementById('msgs');
-function add(role, who, text, cls) {
-  const d = document.createElement('div');
-  d.className = 'msg ' + role + (cls ? ' ' + cls : '');
-  d.innerHTML = '<div class="who"></div>';
-  d.querySelector('.who').textContent = who;
-  d.appendChild(document.createTextNode(text));
-  msgs.appendChild(d); d.scrollIntoView();
+const input = document.getElementById('message');
+let attachment = null;
+let busy = false;
+
+function el(html) { const t = document.createElement('template');
+  t.innerHTML = html.trim(); return t.content.firstChild; }
+function esc(s) { const d = document.createElement('div');
+  d.textContent = s; return d.innerHTML; }
+function scrollEnd() { msgs.lastElementChild?.scrollIntoView({block:'end'}); }
+
+function addUser(text, id) {
+  msgs.appendChild(el(`<div class="msg user" data-id="${id||''}">
+    <div class="who">You</div><span class="body">${esc(text)}</span>
+    <div class="actions"><button class="iconbtn act-edit">edit</button>
+    <button class="iconbtn act-copy">copy</button></div></div>`));
+  scrollEnd();
 }
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const ta = document.getElementById('message');
-  const text = ta.value.trim(); if (!text) return;
-  add('user', 'You', text); ta.value = '';
-  const r = await fetch('/api/chat', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({message:text})});
-  const data = await r.json();
-  if (!data.ok) { add('assistant', 'Sanctum', data.error || 'Something failed.'); return; }
-  (data.tool_events || []).forEach(t =>
-    add('assistant', 'her records', t.tool + ' → written', 'toolnote'));
-  add('assistant', 'Seira', data.reply);
+function addAssistant(text, id) {
+  msgs.appendChild(el(`<div class="msg assistant" data-id="${id||''}">
+    <div class="who">Seira</div><span class="body">${esc(text)}</span>
+    <div class="actions"><button class="iconbtn act-speak">read aloud</button>
+    <button class="iconbtn act-copy">copy</button>
+    <button class="iconbtn act-regen">regenerate</button></div></div>`));
+  scrollEnd();
+}
+function addChip(label) {
+  msgs.appendChild(el(`<div class="toolchip">${esc(label)}</div>`)); scrollEnd();
+}
+let activityEl = null;
+function setActivity(label) {
+  if (!activityEl) { activityEl = el(
+    `<div class="activity"><span class="orb"></span><span class="lbl"></span></div>`);
+    msgs.appendChild(activityEl); }
+  activityEl.querySelector('.lbl').textContent = label; scrollEnd();
+}
+function clearActivity() { activityEl?.remove(); activityEl = null; }
+
+async function stream(body) {
+  if (busy) return; busy = true;
+  body.conv_id = CONV;
+  try {
+    const resp = await fetch('/api/chat/stream', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!chunk.startsWith('data: ')) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.event === 'phase') setActivity(ev.label);
+        else if (ev.event === 'tool') { clearActivity(); addChip(ev.label);
+          setActivity('Thinking'); }
+        else if (ev.event === 'reply') { clearActivity();
+          addAssistant(ev.text, ev.assistant_id); }
+        else if (ev.event === 'error') { clearActivity();
+          addChip(ev.halted ? 'Seira is halted (Art. 32.3)' : ('Failed: ' + ev.error)); }
+      }
+    }
+  } finally { clearActivity(); busy = false; }
+}
+
+document.getElementById('send').addEventListener('click', sendNow);
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendNow(); } });
+function sendNow() {
+  const text = input.value.trim();
+  if (!text && !attachment) return;
+  addUser(attachment ? `[${attachment.name}] ${text}` : text);
+  const body = {action:'send', message:text};
+  if (attachment) body.attachment = attachment;
+  attachment = null; document.getElementById('attachnote').hidden = true;
+  input.value = '';
+  stream(body);
+}
+
+msgs.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.iconbtn'); if (!btn) return;
+  const msg = btn.closest('.msg');
+  const text = msg?.querySelector('.body')?.textContent || '';
+  if (btn.classList.contains('act-copy')) {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = 'copied'; setTimeout(()=>btn.textContent='copy', 1200);
+  } else if (btn.classList.contains('act-speak')) {
+    speechSynthesis.cancel();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  } else if (btn.classList.contains('act-regen')) {
+    msg.remove(); stream({action:'regenerate'});
+  } else if (btn.classList.contains('act-edit')) {
+    const id = parseInt(msg.dataset.id || '0');
+    if (!id) return;
+    const edited = prompt('Edit your message (the original stays in her record):', text);
+    if (edited === null || !edited.trim()) return;
+    while (msg.nextSibling) msg.nextSibling.remove();
+    msg.querySelector('.body').textContent = edited;
+    stream({action:'edit', target_id:id, new_text:edited});
+  }
+});
+
+document.getElementById('newchat').addEventListener('click', async () => {
+  const r = await fetch('/api/conversations', {method:'POST'});
+  const d = await r.json();
+  if (d.ok) location.href = '/?c=' + d.conv_id;
+});
+
+const tray = document.getElementById('tray');
+const burger = document.getElementById('hamburger');
+burger.addEventListener('click', () => {
+  const open = tray.classList.toggle('open');
+  burger.setAttribute('aria-expanded', open);
+});
+document.querySelector('.tray label').addEventListener('click',
+  () => document.getElementById('fileinput').click());
+document.getElementById('fileinput').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/upload', {method:'POST', body:fd});
+  const d = await r.json();
+  if (!d.ok) { alert(d.error); return; }
+  attachment = {name: d.name, text: d.text};
+  const note = document.getElementById('attachnote');
+  note.textContent = 'Attached: ' + d.name + ' (sent with your next message)';
+  note.hidden = false; tray.classList.remove('open');
+});
+
+const voicebtn = document.getElementById('voicebtn');
+let rec = null;
+voicebtn.addEventListener('click', () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert('Voice capture needs a Chromium-based browser.'); return; }
+  if (rec) { rec.stop(); return; }
+  rec = new SR(); rec.continuous = true; rec.interimResults = true;
+  voicebtn.textContent = 'Listening… (tap to stop)';
+  voicebtn.classList.add('listening');
+  rec.onresult = (ev) => {
+    let final = '';
+    for (const r of ev.results) if (r.isFinal) final += r[0].transcript;
+    if (final) input.value = (input.value + ' ' + final).trim();
+  };
+  rec.onend = () => { voicebtn.textContent = 'Voice capture';
+    voicebtn.classList.remove('listening'); rec = null; };
+  rec.start();
 });
 </script>
 {% endblock %}
