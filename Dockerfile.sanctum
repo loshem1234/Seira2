@@ -1,0 +1,25 @@
+# Sanctum (Phase W1) — the Seira web layer, without the Hermes runtime.
+# Deterministic build for Railway: point the service's "Dockerfile Path"
+# setting at this file so Railway's monorepo auto-detection is bypassed.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+COPY seira_web/requirements.txt seira_web/requirements.txt
+RUN pip install --no-cache-dir -r seira_web/requirements.txt
+
+# Only what the Sanctum needs: the constitutional core, the bridge
+# (Hermes-optional via its shim), the web app, and the founding docs
+# that onboarding embeds as every new Seira's Intellect v1.
+COPY seira_core/ seira_core/
+COPY seira_bridge/ seira_bridge/
+COPY seira_web/ seira_web/
+COPY docs/seira/founding/ docs/seira/founding/
+COPY LICENSE NOTICE ./
+
+# State lives on the mounted volume, never in the image:
+#   SEIRA_TENANTS_ROOT=/data/tenants  SEIRA_PLATFORM_ROOT=/data/platform
+EXPOSE 8000
+CMD ["python", "-m", "seira_web"]
