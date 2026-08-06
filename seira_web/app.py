@@ -155,7 +155,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     # ---------------- the console ----------------
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/console", response_class=HTMLResponse)
     def console(request: Request, account: dict = Depends(require_account)):
         from seira_core.genesis import genesis_performed
         from seira_core.intellect import IntellectStore
@@ -201,39 +201,138 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     # ---------------- chat ----------------
 
-    @app.get("/chat", response_class=HTMLResponse)
+    @app.get("/", response_class=HTMLResponse)
     def chat_page(request: Request, account: dict = Depends(require_account)):
+        from seira_core.genesis import genesis_performed
         from seira_core.tripwire import is_halted
-        from seira_web.chat import load_history
+        from seira_web import conversations as convs
         with tenant_scope(account["tenant_id"]):
+            if not genesis_performed():
+                return RedirectResponse("/onboard", status_code=303)
             if is_halted():
                 return templates.TemplateResponse(request, "halted.html", {},
                                                   status_code=503)
-            history = load_history()
-        return templates.TemplateResponse(request, "chat.html",
-                                          {"history": history})
+            conv_list = convs.list_conversations()
+            if not conv_list:
+                convs.create_conversation()
+                conv_list = convs.list_conversations()
+            active_id = request.query_params.get("c") or conv_list[0]["conv_id"]
+            history = convs.display_records(active_id)
+        return templates.TemplateResponse(request, "chat.html", {
+            "conversations": conv_list, "active_id": active_id,
+            "history": history})
+
+    @app.post("/api/conversations")
+    def new_conversation(account: dict = Depends(require_account)):
+        from seira_web import conversations as convs
+        with tenant_scope(account["tenant_id"]):
+            c = convs.create_conversation()
+        return JSONResponse({"ok": True, "conv_id": c["conv_id"]})
+
+    @app.post("/api/upload")
+    async def upload(request: Request, account: dict = Depends(require_account)):
+        from fastapi import UploadFile
+        form = await request.form()
+        f = form.get("file")
+        if f is None:
+            return JSONResponse({"ok": False, "error": "No file."}, status_code=400)
+        name = f.filename or "document"
+        if not name.lower().endswith((".txt", ".md", ".markdown")):
+            return JSONResponse(
+                {"ok": False,
+                 "error": "For now Seira reads .txt and .md documents; "
+                          "richer formats come with the full engine."},
+                status_code=400)
+        raw = await f.read()
+        if len(raw) > 200_000:
+            return JSONResponse({"ok": False, "error": "Document too large "
+                                 "(200KB limit for now)."}, status_code=400)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return JSONResponse({"ok": False, "error": "Document is not "
+                                 "readable UTF-8 text."}, status_code=400)
+        return JSONResponse({"ok": True, "name": name, "text": text})
+
+    def _dispatch(account, body, emit=None):
+        """Shared by the JSON and SSE endpoints. Actions: send | regenerate
+        | edit. Returns the run_turn result dict."""
+        import os
+        from seira_web.chat import edit_and_rerun, regenerate as regen
+        from seira_web import conversations as convs
+        action = body.get("action", "send")
+        conv_id = body.get("conv_id", "")
+        try:
+            os.environ["SEIRA_TENANT"] = account["tenant_id"]
+            from seira_bridge import SeiraPsycheProvider
+            provider = SeiraPsycheProvider()
+            client = app.state.llm_client_factory()
+            with tenant_scope(account["tenant_id"]):
+                if not conv_id:
+                    conv_id = convs.create_conversation()["conv_id"]
+                if action == "send":
+                    message = (body.get("message") or "").strip()
+                    attachment = body.get("attachment")
+                    if not message and not attachment:
+                        raise ValueError("Empty message.")
+                    return conv_id, run_turn(
+                        provider, client, conv_id, message,
+                        emit=emit, attachment=attachment)
+                if action == "regenerate":
+                    return conv_id, regen(provider, client, conv_id, emit=emit)
+                if action == "edit":
+                    return conv_id, edit_and_rerun(
+                        provider, client, conv_id,
+                        int(body["target_id"]), body.get("new_text", ""),
+                        emit=emit)
+                raise ValueError(f"Unknown action {action!r}.")
+        finally:
+            os.environ.pop("SEIRA_TENANT", None)
 
     @app.post("/api/chat")
     async def api_chat(request: Request, account: dict = Depends(require_account)):
-        import os
-        import sys
         body = await request.json()
-        message = (body.get("message") or "").strip()
-        if not message:
-            return JSONResponse({"ok": False, "error": "Empty message."},
-                                status_code=400)
         try:
-            os.environ["SEIRA_TENANT"] = account["tenant_id"]  # provider scope
-            from seira_bridge import SeiraPsycheProvider
-            provider = SeiraPsycheProvider()
-            with tenant_scope(account["tenant_id"]):
-                result = run_turn(provider, app.state.llm_client_factory(), message)
+            conv_id, result = _dispatch(account, body)
         except SeiraHaltedError as e:
             return JSONResponse({"ok": False, "halted": True, "error": str(e)},
                                 status_code=503)
-        finally:
-            os.environ.pop("SEIRA_TENANT", None)
-        return JSONResponse({"ok": True, **result})
+        except ValueError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+        return JSONResponse({"ok": True, "conv_id": conv_id, **result})
+
+    @app.post("/api/chat/stream")
+    async def api_chat_stream(request: Request,
+                              account: dict = Depends(require_account)):
+        """Server-sent events: her real activity, live."""
+        import queue as _q
+        import threading
+        from fastapi.responses import StreamingResponse
+        body = await request.json()
+        q: _q.Queue = _q.Queue()
+
+        def worker():
+            try:
+                conv_id, result = _dispatch(account, body,
+                                            emit=lambda e: q.put(e))
+                q.put({"event": "done", "conv_id": conv_id,
+                       "tool_events": result["tool_events"]})
+            except SeiraHaltedError as e:
+                q.put({"event": "error", "halted": True, "error": str(e)})
+            except Exception as e:
+                q.put({"event": "error", "error": str(e)})
+            q.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def sse():
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(sse(), media_type="text/event-stream")
 
     @app.get("/healthz")
     def healthz():
