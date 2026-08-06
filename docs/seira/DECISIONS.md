@@ -269,3 +269,11 @@ bridge + web + founding docs only) while the same bridge code registers
 as a first-class provider inside the full fork. Verified both ways:
 the suite runs with Hermes on the path; a simulated slim layout builds
 the app without it.
+
+
+**D45. Correction: no second cron service.** Railway volumes attach to
+exactly one service — a separate tripwire cron service could never see
+the web service's /data. The sweep instead runs as a background thread
+inside the same process (seira_web/tripwire_loop.py), sharing the
+volume for free, plus an unauthenticated /healthz for external
+monitoring without SSH. This replaces the two-service plan in §11.
