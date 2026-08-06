@@ -11,12 +11,15 @@ COPY seira_web/requirements.txt seira_web/requirements.txt
 RUN pip install --no-cache-dir -r seira_web/requirements.txt
 
 # Only what the Sanctum needs: the constitutional core, the bridge
-# (Hermes-optional via its shim), the web app, and the founding docs
+# (Hermes-optional via its shim), the web app, and the founding texts
 # that onboarding embeds as every new Seira's Intellect v1.
+# seira_founding/ (not docs/, and .txt not .md) is deliberate: the
+# fork's own .dockerignore excludes both "docs/" and "*.md" wholesale
+# for Hermes's doc site, which would silently strip these otherwise.
 COPY seira_core/ seira_core/
 COPY seira_bridge/ seira_bridge/
 COPY seira_web/ seira_web/
-COPY docs/seira/founding/ docs/seira/founding/
+COPY seira_founding/ seira_founding/
 COPY LICENSE NOTICE ./
 
 # State lives on the mounted volume, never in the image:
