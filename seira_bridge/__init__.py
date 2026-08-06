@@ -36,7 +36,47 @@ import logging
 import os
 from typing import Any, Dict, List
 
-from agent.memory_provider import MemoryProvider
+try:
+    # Inside the full fork: the real Hermes base class, so the provider
+    # registers as a first-class MemoryProvider.
+    from agent.memory_provider import MemoryProvider
+    HERMES_PRESENT = True
+except ImportError:
+    # Sanctum-only deployments (Phase W1 containers) ship without the
+    # Hermes tree. The provider needs only the interface shape there —
+    # nothing in seira_bridge calls into Hermes itself.
+    HERMES_PRESENT = False
+
+    class MemoryProvider:  # type: ignore[no-redef]
+        """Minimal stand-in matching the Hermes ABC surface (W1 shim)."""
+
+        @property
+        def name(self) -> str:  # pragma: no cover - overridden
+            raise NotImplementedError
+
+        def is_available(self) -> bool:  # pragma: no cover - overridden
+            raise NotImplementedError
+
+        def initialize(self, session_id, **kwargs) -> None:
+            return None
+
+        def system_prompt_block(self) -> str:
+            return ""
+
+        def get_tool_schemas(self):
+            return []
+
+        def handle_tool_call(self, tool_name, args, **kwargs) -> str:
+            raise NotImplementedError
+
+        def sync_turn(self, *a, **k) -> None:
+            return None
+
+        def on_delegation(self, *a, **k) -> None:
+            return None
+
+        def shutdown(self) -> None:
+            return None
 
 from seira_core.errors import SeiraCoreError, SeiraHaltedError
 from seira_core.psyche import CATEGORIES, TRUE_CAUSES, PsycheStore
