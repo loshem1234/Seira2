@@ -277,3 +277,13 @@ the web service's /data. The sweep instead runs as a background thread
 inside the same process (seira_web/tripwire_loop.py), sharing the
 volume for free, plus an unauthenticated /healthz for external
 monitoring without SSH. This replaces the two-service plan in §11.
+
+**D46. Correction: founding texts moved out of docs/, and off .md.**
+The fork's own .dockerignore excludes "docs/" and "*.md" wholesale
+(for Hermes's Docusaurus site); that silently stripped the founding
+Constitution and Codex out of every Sanctum build despite being
+correctly committed to git — invisible until the build actually
+failed. Moved to seira_founding/*.txt at the repo root, a path and
+extension neither ignore rule touches. Verified: a simulated slim
+layout builds and produces the full ~46KB founding text with no
+docs/ directory present at all.
