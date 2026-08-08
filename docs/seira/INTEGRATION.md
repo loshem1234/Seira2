@@ -215,3 +215,13 @@ chat, tools, and governance run entirely on seira_core.
   (bounded, MAX_CONTINUATIONS=4 in seira_web/chat.py) so a genuinely
   long answer still arrives whole. Tool calls cut mid-argument are
   never executed partially — she's told plainly and retries.
+
+## 13. Model and length preferences
+
+`GET /` now renders a model dropdown (Sonnet 5, Opus 4.8, Haiku 4.5,
+Fable 5, Sonnet 4.6-legacy) and a response-length dropdown (short
+~100 chars, medium ~500, long ~2000, full/unrestricted) in the
+composer's hamburger tray. Both persist in the browser via
+localStorage and are sent with every `/api/chat` and
+`/api/chat/stream` call as `model` and `length_pref`. To change the
+offered model list, edit `AVAILABLE_MODELS` in `seira_web/chat.py`.

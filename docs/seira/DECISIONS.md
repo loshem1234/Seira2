@@ -344,3 +344,45 @@ chat loop and the bridge's own dispatch now catch incomplete/invalid
 arguments and return a normal {"ok": false, "error": ...} tool result
 instead of an unhandled exception — closing the path from "the request
 was cut short" to "the user sees a raw technical failure."
+
+## UI Update — Chat Interaction Polish
+
+**D54. Auto-growing composer, no fixed height.** The textarea grows
+with `scrollHeight` on input, capped at 12rem, then scrolls internally
+— never a cramped fixed box for a long message.
+
+**D55. Composer is structurally pinned, not just visually.** html/body
+now use `overflow: hidden`; `.msgs` is the sole scrolling region inside
+a flex column, and `.shell` uses `100dvh` (with a `100vh` fallback) so
+mobile browser-chrome resizing can't push the composer off-screen. The
+composer was never actually supposed to move — this closes the actual
+cause rather than re-pinning it with `position: fixed`, which would
+have fought the sidebar layout.
+
+**D56. Load-at-bottom.** `requestAnimationFrame(scrollEnd)` runs once
+after the DOM is painted, landing on the latest message immediately —
+no manual scroll required on page load.
+
+**D57. Sidebar is collapsible two ways.** A History toggle in the top
+bar, and clicking anywhere in the live chat area auto-collapses it —
+implemented via a capturing click listener on `.chatcol` with
+`stopPropagation` inside the sidebar itself so its own links and the
+new-conversation button remain unaffected.
+
+**D58. Send is a golden arrow; voice capture is a standalone golden
+mic beside it,** not buried in the hamburger tray — matching the
+stated intent that speaking to her should be as immediate as typing
+to her.
+
+**D59. Model selection and response-length preference are real,
+server-honored settings — not decorative.** The hamburger tray adds
+both as selects, persisted in localStorage, sent with every request.
+Model selection reaches the actual Anthropic client (proven with a
+recording fake in test_model_selection.py: her deployment now runs
+the current lineup — Sonnet 5 as the new default, Opus 4.8, Haiku 4.5,
+Fable 5, and Sonnet 4.6 kept as an explicit legacy option). Length
+preference is instruction-based, appended to the system prompt and
+clearly marked as a UI setting rather than identity — never a hard
+character-count truncation, since that would silently reintroduce the
+mid-sentence cutoff problem already fixed. DEFAULT_MODEL updated from
+claude-sonnet-4-6 to claude-sonnet-5 to reflect the current lineup.
