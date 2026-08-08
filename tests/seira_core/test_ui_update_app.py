@@ -91,3 +91,46 @@ def test_upload_rejects_oversized_file(client, monkeypatch):
     r = client.post("/api/upload",
                     files={"file": ("big.txt", b"way more than ten bytes", "text/plain")})
     assert r.status_code == 400 and "too large" in r.json()["error"]
+
+
+def test_web_search_is_on_by_default_without_any_toggle(client, monkeypatch):
+    """The standing-capability change: no 'web_search' field sent at all
+    must still reach the model with the tool present."""
+    import seira_web.app as appmod
+
+    seen = {}
+
+    class RecordingLLM:
+        def complete(self, system, messages, tools):
+            seen["tools"] = tools
+            return {"content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn"}
+
+    app = appmod.create_app(llm_client_factory=lambda model=None: RecordingLLM())
+    from fastapi.testclient import TestClient
+    c = TestClient(app, follow_redirects=False)
+    c.post("/signup", data={"email": "b@example.com", "password": "long-enough-password"})
+    c.post("/onboard", data={"telos": "t", "relation": "r", "self_model": "s"})
+    r = c.post("/api/chat", json={"action": "send", "message": "hi"})  # no web_search key at all
+    assert r.json()["ok"] is True
+    assert any(t.get("name") == "web_search" for t in seen["tools"])
+
+
+def test_web_search_org_level_kill_switch(client, monkeypatch):
+    import seira_web.app as appmod
+    monkeypatch.setattr(appmod, "WEB_SEARCH_GLOBALLY_ENABLED", False)
+
+    seen = {}
+
+    class RecordingLLM:
+        def complete(self, system, messages, tools):
+            seen["tools"] = tools
+            return {"content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn"}
+
+    app = appmod.create_app(llm_client_factory=lambda model=None: RecordingLLM())
+    from fastapi.testclient import TestClient
+    c = TestClient(app, follow_redirects=False)
+    c.post("/signup", data={"email": "c@example.com", "password": "long-enough-password"})
+    c.post("/onboard", data={"telos": "t", "relation": "r", "self_model": "s"})
+    r = c.post("/api/chat", json={"action": "send", "message": "hi", "web_search": True})
+    assert r.json()["ok"] is True
+    assert not any(t.get("name") == "web_search" for t in seen["tools"])
