@@ -41,6 +41,12 @@ AVAILABLE_MODELS = [
 # Soft, instruction-based only — never a hard mid-sentence truncation,
 # which would undo the truncation fix. She is asked to keep to it; she
 # is not clipped to it.
+# The web search tool's version string moves as Anthropic revises it
+# (multiple versions have coexisted in the wild). Configurable rather
+# than hard-guessed so a deprecation doesn't require a code change.
+WEB_SEARCH_TOOL_TYPE = os.environ.get("SEIRA_WEB_SEARCH_TOOL", "web_search_20250305")
+WEB_SEARCH_MAX_USES = int(os.environ.get("SEIRA_WEB_SEARCH_MAX_USES", "5"))
+
 LENGTH_INSTRUCTIONS = {
     "short": "Keep this reply to roughly 100 characters or fewer — a single short sentence.",
     "medium": "Keep this reply to roughly 500 characters or fewer — a short paragraph.",
@@ -102,10 +108,17 @@ class AnthropicClient:
         return resp.json()
 
 
-def _anthropic_tools(provider) -> List[Dict[str, Any]]:
-    return [{"name": s["name"], "description": s["description"],
+def _anthropic_tools(provider, web_search: bool = False) -> List[Dict[str, Any]]:
+    tools = [{"name": s["name"], "description": s["description"],
              "input_schema": s["parameters"]}
             for s in provider.get_tool_schemas()]
+    if web_search:
+        # Anthropic's native server-side tool: no seira_core write path,
+        # no filesystem/shell access — safe to offer without touching the
+        # per-tenant sandbox question (D40).
+        tools.append({"type": WEB_SEARCH_TOOL_TYPE, "name": "web_search",
+                      "max_uses": WEB_SEARCH_MAX_USES})
+    return tools
 
 
 def _tool_input_is_complete(tool_use_block: Dict[str, Any]) -> bool:
@@ -157,6 +170,7 @@ def run_turn(
     emit: Optional[Callable[[Dict[str, Any]], None]] = None,
     attachment: Optional[Dict[str, str]] = None,
     length_pref: Optional[str] = None,
+    web_search: bool = False,
 ) -> Dict[str, Any]:
     """One full turn in a conversation.
 
@@ -173,7 +187,7 @@ def run_turn(
             "\n\n---\n# RESPONSE LENGTH PREFERENCE (Architect's UI setting, "
             "not identity)\n" + LENGTH_INSTRUCTIONS[length_pref]
         )
-    tools = _anthropic_tools(provider)
+    tools = _anthropic_tools(provider, web_search=web_search)
 
     if attachment is not None:
         convs.append(conv_id, "attachment", name=attachment["name"])
@@ -183,8 +197,9 @@ def run_turn(
         ).strip()
 
     if user_message is not None:
-        convs.append(conv_id, "user", text=user_message)
+        rec = convs.append(conv_id, "user", text=user_message)
         convs.touch(conv_id, maybe_title_from=user_message)
+        emit({"event": "user_recorded", "id": rec["id"]})
 
     messages: List[Dict[str, Any]] = [
         {"role": m["role"], "content": m["content"]}
@@ -199,6 +214,18 @@ def run_turn(
             client, system, messages, tools, response, emit)
         tool_uses = [b for b in content if b.get("type") == "tool_use"]
         texts = [b.get("text", "") for b in content if b.get("type") == "text"]
+
+        # Server-executed tools (currently: web_search) resolve entirely
+        # within this same response — Anthropic returns the search and its
+        # results as content blocks already. There is nothing to dispatch
+        # and nothing to answer with a tool_result; we only announce it.
+        for b in content:
+            if b.get("type") == "server_tool_use" and b.get("name") == "web_search":
+                emit({"event": "tool", "tool": "web_search", "label": "Searching the web"})
+                convs.append(conv_id, "tool", tool="web_search",
+                            label="Searching the web", input=b.get("input") or {})
+                tool_events.append({"tool": "web_search", "label": "Searching the web",
+                                    "result": "(resolved server-side by Anthropic)"})
         truncated_tool = (
             stop_reason == "max_tokens"
             and tool_uses

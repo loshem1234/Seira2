@@ -16,6 +16,7 @@ with 503 — the tripwire's word is final until her Architect clears it.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -174,16 +175,20 @@ def create_app(llm_client_factory=None) -> FastAPI:
             if is_halted():
                 return templates.TemplateResponse(request, "halted.html", {},
                                                   status_code=503)
+            from seira_core.instruments import InstrumentStore
             ctx = {
                 "email": account["email"],
                 "unity": read_unity(),
                 "intellect": IntellectStore().current(),
+                "intellect_history": list(reversed(IntellectStore().history())),
                 "psyche": sorted(
                     (e for e in PsycheStore().state()["entries"].values()
                      if e["standing"] != "retired"),
                     key=lambda e: e["entry_id"]),
                 "proposals": ReversionStore().list_proposals(),
                 "health": ReversionStore().health(),
+                "instruments": InstrumentStore().list_instruments(),
+                "skills": InstrumentStore().list_skills(),
             }
         return templates.TemplateResponse(request, "console.html", ctx)
 
@@ -237,28 +242,41 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     @app.post("/api/upload")
     async def upload(request: Request, account: dict = Depends(require_account)):
-        from fastapi import UploadFile
+        from seira_web.documents import MAX_UPLOAD_BYTES, SUPPORTED_EXTENSIONS, extract_text
+        from seira_web import references as refs
         form = await request.form()
         f = form.get("file")
         if f is None:
             return JSONResponse({"ok": False, "error": "No file."}, status_code=400)
         name = f.filename or "document"
-        if not name.lower().endswith((".txt", ".md", ".markdown")):
+        if not name.lower().endswith(SUPPORTED_EXTENSIONS):
             return JSONResponse(
                 {"ok": False,
-                 "error": "For now Seira reads .txt and .md documents; "
-                          "richer formats come with the full engine."},
+                 "error": f"Seira currently reads {', '.join(SUPPORTED_EXTENSIONS)}. "
+                          "OCR for scanned/image PDFs isn't supported yet."},
                 status_code=400)
         raw = await f.read()
-        if len(raw) > 200_000:
-            return JSONResponse({"ok": False, "error": "Document too large "
-                                 "(200KB limit for now)."}, status_code=400)
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return JSONResponse({"ok": False, "error": "Document is not "
-                                 "readable UTF-8 text."}, status_code=400)
-        return JSONResponse({"ok": True, "name": name, "text": text})
+        if len(raw) > MAX_UPLOAD_BYTES:
+            return JSONResponse(
+                {"ok": False,
+                 "error": f"Document too large ({len(raw)//1_000_000}MB; "
+                          f"limit {MAX_UPLOAD_BYTES//1_000_000}MB)."},
+                status_code=400)
+        result = extract_text(name, raw)
+        if not result["ok"]:
+            return JSONResponse({"ok": False, "error": result["error"]}, status_code=400)
+        with tenant_scope(account["tenant_id"]):
+            saved = refs.save_reference(name, result["text"])
+        # Inline slice for immediate use in this turn; the full text is
+        # permanently saved and pageable via seira_reference_recall.
+        inline_cap = int(os.environ.get("SEIRA_INLINE_ATTACHMENT_CHARS", "6000"))
+        inline_text = result["text"][:inline_cap]
+        truncated = len(result["text"]) > inline_cap
+        return JSONResponse({
+            "ok": True, "name": name, "text": inline_text,
+            "ref_id": saved["ref_id"], "total_length": saved["length"],
+            "truncated_for_chat": truncated,
+        })
 
     def _dispatch(account, body, emit=None):
         """Shared by the JSON and SSE endpoints. Actions: send | regenerate
@@ -270,6 +288,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
         conv_id = body.get("conv_id", "")
         model = (body.get("model") or "").strip() or None
         length_pref = (body.get("length_pref") or "").strip() or None
+        web_search = bool(body.get("web_search"))
         try:
             os.environ["SEIRA_TENANT"] = account["tenant_id"]
             from seira_bridge import SeiraPsycheProvider
@@ -285,7 +304,8 @@ def create_app(llm_client_factory=None) -> FastAPI:
                         raise ValueError("Empty message.")
                     return conv_id, run_turn(
                         provider, client, conv_id, message,
-                        emit=emit, attachment=attachment, length_pref=length_pref)
+                        emit=emit, attachment=attachment, length_pref=length_pref,
+                        web_search=web_search)
                 if action == "regenerate":
                     return conv_id, regen(provider, client, conv_id, emit=emit,
                                           length_pref=length_pref)
@@ -353,6 +373,21 @@ def create_app(llm_client_factory=None) -> FastAPI:
         status_code = 503 if halted else 200
         return JSONResponse(
             {"tenants": len(results), "halted": halted}, status_code=status_code)
+
+    @app.get("/diary", response_class=HTMLResponse)
+    def diary_page(request: Request, account: dict = Depends(require_account)):
+        from seira_core.diary import DiaryStore
+        from seira_core.tripwire import is_halted
+        kind = request.query_params.get("kind", "self")
+        if kind not in ("self", "architect"):
+            kind = "self"
+        with tenant_scope(account["tenant_id"]):
+            if is_halted():
+                return templates.TemplateResponse(request, "halted.html", {},
+                                                  status_code=503)
+            entries = list(reversed(DiaryStore().entries(kind=kind)))
+        return templates.TemplateResponse(request, "diary.html",
+                                          {"kind": kind, "entries": entries})
 
     return app
 
