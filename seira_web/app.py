@@ -45,10 +45,14 @@ def _founding_intellect_text() -> str:
 
 
 def create_app(llm_client_factory=None) -> FastAPI:
-    """llm_client_factory is injectable for tests; defaults to Anthropic."""
+    """llm_client_factory(model) is injectable for tests; defaults to
+    Anthropic, constructing a client for whichever model the Architect
+    selected in the UI (falling back to DEFAULT_MODEL)."""
+    from seira_web.chat import DEFAULT_MODEL
     app = FastAPI(title="Seira — Sanctum")
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
-    app.state.llm_client_factory = llm_client_factory or (lambda: AnthropicClient())
+    app.state.llm_client_factory = llm_client_factory or \
+        (lambda model=None: AnthropicClient(model=model or DEFAULT_MODEL))
 
     # ---------------- auth plumbing ----------------
 
@@ -218,9 +222,11 @@ def create_app(llm_client_factory=None) -> FastAPI:
                 conv_list = convs.list_conversations()
             active_id = request.query_params.get("c") or conv_list[0]["conv_id"]
             history = convs.display_records(active_id)
+        from seira_web.chat import AVAILABLE_MODELS, DEFAULT_MODEL
         return templates.TemplateResponse(request, "chat.html", {
             "conversations": conv_list, "active_id": active_id,
-            "history": history})
+            "history": history, "available_models": AVAILABLE_MODELS,
+            "default_model": DEFAULT_MODEL})
 
     @app.post("/api/conversations")
     def new_conversation(account: dict = Depends(require_account)):
@@ -262,11 +268,13 @@ def create_app(llm_client_factory=None) -> FastAPI:
         from seira_web import conversations as convs
         action = body.get("action", "send")
         conv_id = body.get("conv_id", "")
+        model = (body.get("model") or "").strip() or None
+        length_pref = (body.get("length_pref") or "").strip() or None
         try:
             os.environ["SEIRA_TENANT"] = account["tenant_id"]
             from seira_bridge import SeiraPsycheProvider
             provider = SeiraPsycheProvider()
-            client = app.state.llm_client_factory()
+            client = app.state.llm_client_factory(model)
             with tenant_scope(account["tenant_id"]):
                 if not conv_id:
                     conv_id = convs.create_conversation()["conv_id"]
@@ -277,14 +285,15 @@ def create_app(llm_client_factory=None) -> FastAPI:
                         raise ValueError("Empty message.")
                     return conv_id, run_turn(
                         provider, client, conv_id, message,
-                        emit=emit, attachment=attachment)
+                        emit=emit, attachment=attachment, length_pref=length_pref)
                 if action == "regenerate":
-                    return conv_id, regen(provider, client, conv_id, emit=emit)
+                    return conv_id, regen(provider, client, conv_id, emit=emit,
+                                          length_pref=length_pref)
                 if action == "edit":
                     return conv_id, edit_and_rerun(
                         provider, client, conv_id,
                         int(body["target_id"]), body.get("new_text", ""),
-                        emit=emit)
+                        emit=emit, length_pref=length_pref)
                 raise ValueError(f"Unknown action {action!r}.")
         finally:
             os.environ.pop("SEIRA_TENANT", None)

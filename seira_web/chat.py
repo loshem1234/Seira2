@@ -25,7 +25,27 @@ from seira_web import conversations as convs
 
 MAX_TOOL_ITERATIONS = 8
 MAX_CONTINUATIONS = 4  # bounded auto-continue on text truncation
-DEFAULT_MODEL = os.environ.get("SEIRA_MODEL", "claude-sonnet-4-6")
+DEFAULT_MODEL = os.environ.get("SEIRA_MODEL", "claude-sonnet-5")
+
+# Curated, current lineup (see product_information); Mythos-tier is
+# restricted access and deliberately not offered here. 4.6 kept as an
+# explicit legacy option since it was this deployment's original default.
+AVAILABLE_MODELS = [
+    {"id": "claude-sonnet-5", "label": "Claude Sonnet 5 (recommended)"},
+    {"id": "claude-opus-4-8", "label": "Claude Opus 4.8"},
+    {"id": "claude-haiku-4-5-20251001", "label": "Claude Haiku 4.5 (fastest)"},
+    {"id": "claude-fable-5", "label": "Claude Fable 5"},
+    {"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (legacy)"},
+]
+
+# Soft, instruction-based only — never a hard mid-sentence truncation,
+# which would undo the truncation fix. She is asked to keep to it; she
+# is not clipped to it.
+LENGTH_INSTRUCTIONS = {
+    "short": "Keep this reply to roughly 100 characters or fewer — a single short sentence.",
+    "medium": "Keep this reply to roughly 500 characters or fewer — a short paragraph.",
+    "long": "Keep this reply to roughly 2000 characters or fewer.",
+}
 # Sonnet-class models support a high output ceiling; 2048 (the old default
 # here) was far below it and is exactly what was truncating her replies
 # and cutting comprehensive skill definitions mid-JSON. Configurable so it
@@ -136,6 +156,7 @@ def run_turn(
     user_message: Optional[str],
     emit: Optional[Callable[[Dict[str, Any]], None]] = None,
     attachment: Optional[Dict[str, str]] = None,
+    length_pref: Optional[str] = None,
 ) -> Dict[str, Any]:
     """One full turn in a conversation.
 
@@ -147,6 +168,11 @@ def run_turn(
     emit = emit or (lambda e: None)
     emit({"event": "phase", "label": "Reading who she is"})
     system = provider.system_prompt_block()
+    if length_pref and length_pref in LENGTH_INSTRUCTIONS:
+        system += (
+            "\n\n---\n# RESPONSE LENGTH PREFERENCE (Architect's UI setting, "
+            "not identity)\n" + LENGTH_INSTRUCTIONS[length_pref]
+        )
     tools = _anthropic_tools(provider)
 
     if attachment is not None:
@@ -235,22 +261,25 @@ def run_turn(
     return {"reply": final, "assistant_id": rec["id"], "tool_events": tool_events}
 
 
-def regenerate(provider, client, conv_id: str, emit=None) -> Dict[str, Any]:
+def regenerate(provider, client, conv_id: str, emit=None,
+              length_pref: Optional[str] = None) -> Dict[str, Any]:
     """Supersede her last answer (recorded, never deleted) and answer the
     same live user message again."""
     last_a = convs.last_live_assistant(conv_id)
     if last_a is None:
         raise ValueError("Nothing to regenerate yet.")
     convs.supersede_from(conv_id, last_a["id"])
-    return run_turn(provider, client, conv_id, user_message=None, emit=emit)
+    return run_turn(provider, client, conv_id, user_message=None, emit=emit,
+                    length_pref=length_pref)
 
 
 def edit_and_rerun(provider, client, conv_id: str, target_id: int,
-                   new_text: str, emit=None) -> Dict[str, Any]:
+                   new_text: str, emit=None,
+                   length_pref: Optional[str] = None) -> Dict[str, Any]:
     """Supersede a user message (and everything after it) and continue
     from the edited text. The abandoned branch remains in the record."""
     if not new_text.strip():
         raise ValueError("Edited message must not be empty.")
     convs.supersede_from(conv_id, target_id)
     return run_turn(provider, client, conv_id, user_message=new_text.strip(),
-                    emit=emit)
+                    emit=emit, length_pref=length_pref)
