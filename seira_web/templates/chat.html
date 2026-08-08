@@ -44,10 +44,9 @@
           <label for="fileinput">Attach document (.txt, .md, .pdf — up to 100MB)</label>
           <input id="fileinput" type="file" accept=".txt,.md,.markdown,.pdf" hidden>
           <div class="traysection">
-            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-              <input type="checkbox" id="websearchbox" style="width:auto">
-              Web search (via Anthropic)
-            </label>
+            <span class="trayheading">Web search</span>
+            <span class="muted" style="font-size:.82rem">Always available to her —
+              she decides when a question needs current information.</span>
           </div>
           <div class="traysection">
             <span class="trayheading">Model</span>
@@ -89,7 +88,6 @@ const msgs = document.getElementById('msgs');
 const input = document.getElementById('message');
 const modelselect = document.getElementById('modelselect');
 const lengthselect = document.getElementById('lengthselect');
-const websearchbox = document.getElementById('websearchbox');
 let attachment = null;
 let busy = false;
 let lastUserEl = null;  // fixes the edit-inactive bug: set once the real id arrives
@@ -97,10 +95,8 @@ let lastUserEl = null;  // fixes the edit-inactive bug: set once the real id arr
 // --- preferences persist locally across reloads ---
 modelselect.value = localStorage.getItem('seira_model') || modelselect.value;
 lengthselect.value = localStorage.getItem('seira_length') || 'full';
-websearchbox.checked = localStorage.getItem('seira_websearch') === '1';
 modelselect.addEventListener('change', () => localStorage.setItem('seira_model', modelselect.value));
 lengthselect.addEventListener('change', () => localStorage.setItem('seira_length', lengthselect.value));
-websearchbox.addEventListener('change', () => localStorage.setItem('seira_websearch', websearchbox.checked ? '1' : '0'));
 
 function el(html) { const t = document.createElement('template');
   t.innerHTML = html.trim(); return t.content.firstChild; }
@@ -140,7 +136,7 @@ async function stream(body) {
   body.conv_id = CONV;
   body.model = modelselect.value;
   body.length_pref = lengthselect.value;
-  body.web_search = websearchbox.checked;
+  body.web_search = true;  // standing capability; she decides when to use it
   try {
     const resp = await fetch('/api/chat/stream', {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
