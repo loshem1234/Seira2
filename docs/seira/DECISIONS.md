@@ -314,3 +314,33 @@ into the turn with a recorded attachment marker. Voice capture and
 read-aloud are browser-native (Web Speech API) — no audio ever
 touches the server. PDF and richer formats arrive with the full
 engine, not before.
+
+## Correction — Length Limits
+
+**D51. The real bug: max_tokens was hard-capped at 2048.** That number
+was never chosen deliberately — it was a placeholder that made W1's
+initial tests pass and was never revisited. Both reported symptoms
+(cut-off replies, a blocked comprehensive skill) traced to it: skill
+authorization failed because the tool-call JSON itself got severed
+mid-argument by the same ceiling. Raised to a configurable
+SEIRA_MAX_TOKENS (default 16000; current Sonnet-class models support
+materially more — verified against current docs rather than assumed,
+since training-data numbers on this point age quickly). httpx timeout
+raised from 120s to a configurable 600s, since a longer generation
+needs longer to arrive, not just more room to exist in.
+
+**D52. Two distinct truncation cases, handled differently, on purpose.**
+A pure-text reply cut by the ceiling is auto-continued (bounded at 4
+rounds) and delivered to the Corpus as one whole answer — the fragment
+is never what gets stored or shown. A tool call cut mid-JSON is the
+opposite case: it must NEVER be executed as-is (a half-written skill
+paradigm silently saved would be worse than an error). Instead it's
+refused with an honest, actionable message back to the model, which
+can then retry more concisely or split the work — proven with a test
+that a "comprehensive skill" scenario recovers and succeeds.
+
+**D53. Malformed tool arguments can no longer crash a turn.** Both the
+chat loop and the bridge's own dispatch now catch incomplete/invalid
+arguments and return a normal {"ok": false, "error": ...} tool result
+instead of an unhandled exception — closing the path from "the request
+was cut short" to "the user sees a raw technical failure."

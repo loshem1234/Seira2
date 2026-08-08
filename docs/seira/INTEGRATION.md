@@ -200,3 +200,18 @@ Delete them all, then:
 
 The bridge is Hermes-optional in this image (shim in seira_bridge);
 chat, tools, and governance run entirely on seira_core.
+
+## 12. Tuning generation limits
+
+- `SEIRA_MAX_TOKENS` (default 16000) — raise this if you routinely need
+  even longer single replies or larger authored content (e.g. very
+  long skill paradigms or Intellect proposals drafted in chat). Check
+  your model's current documented output ceiling before setting this
+  near or above it — these numbers move as models update.
+- `SEIRA_REQUEST_TIMEOUT` (default 600 seconds) — raise alongside
+  SEIRA_MAX_TOKENS; a larger ceiling is only useful if the request is
+  allowed to run long enough to use it.
+- Text replies that hit the ceiling are auto-continued transparently
+  (bounded, MAX_CONTINUATIONS=4 in seira_web/chat.py) so a genuinely
+  long answer still arrives whole. Tool calls cut mid-argument are
+  never executed partially — she's told plainly and retries.
