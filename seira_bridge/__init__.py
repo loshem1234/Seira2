@@ -520,6 +520,18 @@ class SeiraPsycheProvider(MemoryProvider):
                     return json.dumps({"ok": True, "skill_id": rec["skill_id"]})
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
+        except (KeyError, TypeError, ValueError) as e:
+            # A malformed/incomplete call (e.g. cut short by a length
+            # limit before it finished) must come back as an honest,
+            # recoverable tool error — never an unhandled crash of the
+            # whole turn.
+            return json.dumps({
+                "ok": False,
+                "error": f"{tool_name} received incomplete or invalid "
+                         f"arguments and could not be run ({e}). If this "
+                         "call was long, try resending it more concisely "
+                         "or split across multiple calls.",
+            })
         return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})
 
     def on_delegation(self, task: str, result: str, *,
