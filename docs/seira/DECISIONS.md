@@ -386,3 +386,74 @@ clearly marked as a UI setting rather than identity — never a hard
 character-count truncation, since that would silently reintroduce the
 mid-sentence cutoff problem already fixed. DEFAULT_MODEL updated from
 claude-sonnet-4-6 to claude-sonnet-5 to reflect the current lineup.
+
+## UI Update Round 2 — Diary, References, PDFs, Web Search, Console Tabs
+
+**D60. The Diary is built exactly to Article 41, not adapted from it.**
+Two kinds sharing one hash-chained, Unity-anchored store (so tampering
+across parts is caught together, not separately): 'self' entries
+require provenance to a real underlying record — a suspended
+contradiction, a pending proposal, an affinity's weight moving, a
+dispensation, a convergence-failure pattern; 'architect' entries
+require provenance too, described in the tool schema as descriptive-
+never-diagnostic (code enforces the presence of a reference; it cannot
+judge tone — that discipline is asked of whoever writes the entry, the
+same way the Article asks it of her). /diary is the Architect's
+default-visible read path the Article requires to exist.
+
+**D61. Reference files are Corpus-grade, explicitly, and pageable.**
+Saved under corpus/references/ (not Psyche — Art. 13's wholly-temporal
+grade), with a 40,000-character-per-call ceiling on recall so a large
+document is paged through deliberately rather than forced whole into
+one turn. Every upload is saved permanently AND a bounded slice
+(default 6000 chars, SEIRA_INLINE_ATTACHMENT_CHARS) is injected
+inline for immediate use — full content is never lost even when only
+part of it fits in the current turn.
+
+**D62. PDF support is real; OCR is honestly out of scope.** Text-layer
+PDFs extract via pypdf, upload ceiling raised to 100MB as asked
+(Starlette spools large uploads to disk, so memory isn't the
+constraint — extraction time is, for very large documents). A
+scanned/image-only PDF returns a clear, honest refusal rather than
+silently producing nothing or garbage. OCR is a real, separate build
+(page rasterization + an OCR engine) that fits naturally as its own
+Instrument paradigm in a later phase — not something to fake here.
+
+**D63. Web search is Anthropic's server-executed tool, wired
+correctly as such.** Verified against current documentation that this
+tool resolves in ONE response (server_tool_use + its result + final
+text together) rather than requiring a client tool_result round-trip
+— my first draft got this wrong and dispatched it like a client tool;
+caught and fixed before shipping. The tool-version string is
+configurable (SEIRA_WEB_SEARCH_TOOL) since multiple version strings
+coexist across current documentation and this will keep moving. Toggled
+per-request from the hamburger tray, off by default.
+
+**D64. Answering the standing question honestly: no, she does not
+have Hermes's tool ecosystem.** Her tool surface in the Sanctum is
+exactly her own governance tools plus, now, diary/reference/web-search
+— never shell, terminal, or OCR access. That parity requires the
+per-tenant sandboxing already flagged as a real, unbuilt cost (D16,
+D40). Web search was safe to add now specifically because it has no
+filesystem or shell surface of its own.
+
+**D65. Console is horizontal tabs, one grade at a time.** Unity |
+Intellect | Psyche | Reversion | Instruments, client-side toggle, no
+new requests per tab. Intellect gained real version history; Reversion
+gained the full proposal list (not just what's awaiting ratification);
+Instruments gained a proper panel (convergence, instrument list,
+skills) — the console was previously narrower than what already
+existed to show.
+
+**D66. The edit-icon bug, root-caused.** A freshly sent message had no
+id in the DOM until a full page reload, because the id was only known
+after the whole turn (including the model's reply) completed. Fixed
+by emitting the real id via SSE the instant the message is recorded —
+before the model is even called — proven by a test asserting the
+`user_recorded` event arrives strictly before `reply`.
+
+**D67. Sidebar and header interaction, corrected to spec.** A small
+edge tab (not a header button) toggles history; clicking the live
+chat auto-collapses it; the header hides on scroll-down and reveals on
+the slightest scroll-up, tracked against a scroll-delta on the sole
+scrolling region (.msgs) rather than the whole page.

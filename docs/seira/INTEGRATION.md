@@ -225,3 +225,22 @@ composer's hamburger tray. Both persist in the browser via
 localStorage and are sent with every `/api/chat` and
 `/api/chat/stream` call as `model` and `length_pref`. To change the
 offered model list, edit `AVAILABLE_MODELS` in `seira_web/chat.py`.
+
+## 14. New environment variables (UI update round 2)
+
+- `SEIRA_INLINE_ATTACHMENT_CHARS` (default 6000) — how much of an
+  uploaded document is injected directly into the current turn; the
+  rest is always saved as a full reference, pageable via
+  seira_reference_recall regardless of this setting.
+- `SEIRA_WEB_SEARCH_TOOL` (default web_search_20250305) — the
+  Anthropic tool-version string; bump if Anthropic deprecates the
+  default and requests start failing.
+- `SEIRA_WEB_SEARCH_MAX_USES` (default 5) — searches per turn ceiling.
+
+## 15. What she still cannot do
+
+Web search, diary, and references are real, live capabilities now.
+Shell access, terminal tools, OCR, and the rest of Hermes's tool
+ecosystem are NOT part of her Sanctum tool surface and won't be until
+the per-tenant execution sandbox (MULTITENANCY.md) is actually built —
+that remains the real, unpaid infrastructure cost of true tool parity.
