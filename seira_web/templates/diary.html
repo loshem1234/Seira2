@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Her Diary{% endblock %}
+{% block body %}
+<div class="frame">
+  <div class="tabs">
+    <a class="tab {{ 'active' if kind == 'self' else '' }}" href="/diary?kind=self">Her diary</a>
+    <a class="tab {{ 'active' if kind == 'architect' else '' }}" href="/diary?kind=architect">Her diary of you</a>
+  </div>
+  <p class="muted" style="margin:0 0 1.2rem">
+    {% if kind == 'self' %}
+    Entered on a daily rhythm; every entry here must trace to something real —
+    a suspended contradiction, a pending proposal, an affinity's weight
+    moving, a dispensation, a pattern of convergence-failure (Art. 41).
+    {% else %}
+    Sincere, objective observations grounded in her relational-pattern model —
+    descriptive, never diagnostic. Visible to you by default, as it should be
+    between two people who know each other (Art. 41).
+    {% endif %}
+  </p>
+  {% for e in entries %}
+  <div class="card">
+    <div class="muted" style="margin-bottom:.4rem">{{ e.ts }} ·
+      provenance: {{ e.provenance | join(", ") }}</div>
+    {{ e.content }}
+  </div>
+  {% else %}
+  <p class="muted">No entries yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

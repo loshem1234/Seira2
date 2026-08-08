@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="topbar">
+<div class="topbar" id="topbar">
   <a href="/" aria-label="Seira home">
     <svg class="sigil" viewBox="0 0 30 44" aria-hidden="true">
       <g class="sigil-pulse">
@@ -22,13 +22,36 @@
       <line class="ray" x1="15" y1="16" x2="15" y2="42"/>
     </svg><span class="wordmark">Seira</span>
   </a>
-  <nav>{% block nav %}
-    <a href="/">Speak with her</a>
-    <a href="/console">Console</a>
-    <form method="post" action="/logout" style="display:inline;margin:0">
-      <button class="iconbtn" style="font-variant:small-caps;letter-spacing:.12em">Log out</button></form>
-  {% endblock %}</nav>
+  {% block nav %}
+  <div style="position:relative">
+    <button class="hamburger" id="navburger" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="tray navtray" id="navtray">
+      <a href="/">Speak with her</a>
+      <a href="/console">Console</a>
+      <a href="/diary">Her Diary</a>
+      <form method="post" action="/logout" style="margin:0">
+        <button type="submit">Log out</button></form>
+    </div>
+  </div>
+  {% endblock %}
 </div>
 {% block body %}{% endblock %}
+<script>
+// Shared top-right nav hamburger (present on every page).
+const navburger = document.getElementById('navburger');
+const navtray = document.getElementById('navtray');
+if (navburger) {
+  navburger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = navtray.classList.toggle('open');
+    navburger.setAttribute('aria-expanded', open);
+  });
+  document.addEventListener('click', (e) => {
+    if (!navtray.contains(e.target) && e.target !== navburger) navtray.classList.remove('open');
+  });
+}
+</script>
 </body>
 </html>

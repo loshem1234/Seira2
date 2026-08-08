@@ -1,12 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Speak with her{% endblock %}
-{% block nav %}
-<button class="iconbtn" id="togglesidebar" style="font-variant:small-caps;letter-spacing:.12em">History</button>
-<a href="/console">Console</a>
-<form method="post" action="/logout" style="display:inline;margin:0">
-  <button class="iconbtn" style="font-variant:small-caps;letter-spacing:.12em">Log out</button></form>
-{% endblock %}
 {% block body %}
+<button class="edgetab" id="edgetab" aria-label="Toggle conversation history" title="History">‹</button>
 <div class="shell" id="shell">
   <aside class="sidebar" id="sidebar">
     <button class="gold newchat" id="newchat">New conversation</button>
@@ -46,8 +41,14 @@
           <span></span><span></span><span></span>
         </button>
         <div class="tray" id="tray">
-          <label for="fileinput">Attach document (.txt, .md)</label>
-          <input id="fileinput" type="file" accept=".txt,.md,.markdown" hidden>
+          <label for="fileinput">Attach document (.txt, .md, .pdf — up to 100MB)</label>
+          <input id="fileinput" type="file" accept=".txt,.md,.markdown,.pdf" hidden>
+          <div class="traysection">
+            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+              <input type="checkbox" id="websearchbox" style="width:auto">
+              Web search (via Anthropic)
+            </label>
+          </div>
           <div class="traysection">
             <span class="trayheading">Model</span>
             <select id="modelselect">
@@ -88,14 +89,18 @@ const msgs = document.getElementById('msgs');
 const input = document.getElementById('message');
 const modelselect = document.getElementById('modelselect');
 const lengthselect = document.getElementById('lengthselect');
+const websearchbox = document.getElementById('websearchbox');
 let attachment = null;
 let busy = false;
+let lastUserEl = null;  // fixes the edit-inactive bug: set once the real id arrives
 
 // --- preferences persist locally across reloads ---
 modelselect.value = localStorage.getItem('seira_model') || modelselect.value;
 lengthselect.value = localStorage.getItem('seira_length') || 'full';
+websearchbox.checked = localStorage.getItem('seira_websearch') === '1';
 modelselect.addEventListener('change', () => localStorage.setItem('seira_model', modelselect.value));
 lengthselect.addEventListener('change', () => localStorage.setItem('seira_length', lengthselect.value));
+websearchbox.addEventListener('change', () => localStorage.setItem('seira_websearch', websearchbox.checked ? '1' : '0'));
 
 function el(html) { const t = document.createElement('template');
   t.innerHTML = html.trim(); return t.content.firstChild; }
@@ -103,12 +108,12 @@ function esc(s) { const d = document.createElement('div');
   d.textContent = s; return d.innerHTML; }
 function scrollEnd() { msgs.scrollTop = msgs.scrollHeight; }
 
-function addUser(text, id) {
-  msgs.appendChild(el(`<div class="msg user" data-id="${id||''}">
-    <div class="who">You</div><span class="body">${esc(text)}</span>
+function addUser(text) {
+  const node = el(`<div class="msg user"><div class="who">You</div>
+    <span class="body">${esc(text)}</span>
     <div class="actions"><button class="iconbtn act-edit">edit</button>
-    <button class="iconbtn act-copy">copy</button></div></div>`));
-  scrollEnd();
+    <button class="iconbtn act-copy">copy</button></div></div>`);
+  msgs.appendChild(node); lastUserEl = node; scrollEnd();
 }
 function addAssistant(text, id) {
   msgs.appendChild(el(`<div class="msg assistant" data-id="${id||''}">
@@ -135,6 +140,7 @@ async function stream(body) {
   body.conv_id = CONV;
   body.model = modelselect.value;
   body.length_pref = lengthselect.value;
+  body.web_search = websearchbox.checked;
   try {
     const resp = await fetch('/api/chat/stream', {method:'POST',
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
@@ -149,7 +155,9 @@ async function stream(body) {
         const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
         if (!chunk.startsWith('data: ')) continue;
         const ev = JSON.parse(chunk.slice(6));
-        if (ev.event === 'phase') setActivity(ev.label);
+        if (ev.event === 'user_recorded') {
+          if (lastUserEl) { lastUserEl.dataset.id = ev.id; lastUserEl = null; }
+        } else if (ev.event === 'phase') setActivity(ev.label);
         else if (ev.event === 'tool') { clearActivity(); addChip(ev.label);
           setActivity('Thinking'); }
         else if (ev.event === 'reply') { clearActivity();
@@ -165,7 +173,6 @@ document.getElementById('send').addEventListener('click', sendNow);
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendNow(); } });
 
-// Auto-growing composer.
 function autoGrow() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 192) + 'px';
@@ -197,7 +204,10 @@ msgs.addEventListener('click', async (e) => {
     msg.remove(); stream({action:'regenerate'});
   } else if (btn.classList.contains('act-edit')) {
     const id = parseInt(msg.dataset.id || '0');
-    if (!id) return;
+    if (!id) {
+      addChip('Still recording that message — try editing again in a moment.');
+      return;
+    }
     const edited = prompt('Edit your message (the original stays in her record):', text);
     if (edited === null || !edited.trim()) return;
     while (msg.nextSibling) msg.nextSibling.remove();
@@ -212,21 +222,33 @@ document.getElementById('newchat').addEventListener('click', async () => {
   if (d.ok) location.href = '/?c=' + d.conv_id;
 });
 
-// Sidebar: manual toggle, plus auto-collapse on interacting with the chat.
+// Sidebar: tiny edge tab toggles it; clicking the live chat auto-collapses.
 const sidebar = document.getElementById('sidebar');
 const shell = document.getElementById('shell');
-document.getElementById('togglesidebar').addEventListener('click', () => {
-  shell.classList.toggle('sidebar-collapsed');
-});
+const edgetab = document.getElementById('edgetab');
+function setSidebar(open) {
+  shell.classList.toggle('sidebar-collapsed', !open);
+  edgetab.textContent = open ? '‹' : '›';
+  edgetab.classList.toggle('shifted', open);
+}
+edgetab.addEventListener('click', () => setSidebar(shell.classList.contains('sidebar-collapsed')));
 document.getElementById('chatcol').addEventListener('click', () => {
-  if (!shell.classList.contains('sidebar-collapsed')) {
-    shell.classList.add('sidebar-collapsed');
-  }
+  if (!shell.classList.contains('sidebar-collapsed')) setSidebar(false);
 }, {capture: true});
-// Clicks inside the sidebar itself must not trigger the auto-collapse above.
 sidebar.addEventListener('click', (e) => e.stopPropagation());
+setSidebar(window.innerWidth > 800);
 
-// Hamburger tray.
+// Header auto-hide: hides on scroll down, reveals on the slightest scroll up.
+const topbar = document.getElementById('topbar');
+let lastScrollTop = 0;
+msgs.addEventListener('scroll', () => {
+  const st = msgs.scrollTop;
+  if (st > lastScrollTop + 4) topbar.classList.add('hidden');
+  else if (st < lastScrollTop - 2) topbar.classList.remove('hidden');
+  lastScrollTop = st;
+}, {passive: true});
+
+// Composer hamburger tray (model/length/web search/attach).
 const tray = document.getElementById('tray');
 const burger = document.getElementById('hamburger');
 burger.addEventListener('click', (e) => {
@@ -237,18 +259,22 @@ burger.addEventListener('click', (e) => {
 document.addEventListener('click', (e) => {
   if (!tray.contains(e.target) && e.target !== burger) tray.classList.remove('open');
 });
-document.querySelector('.tray label').addEventListener('click',
+document.querySelector('.tray label[for="fileinput"]').addEventListener('click',
   () => document.getElementById('fileinput').click());
 document.getElementById('fileinput').addEventListener('change', async (e) => {
   const f = e.target.files[0]; if (!f) return;
   const fd = new FormData(); fd.append('file', f);
+  const note = document.getElementById('attachnote');
+  note.textContent = 'Uploading ' + f.name + '…'; note.hidden = false;
   const r = await fetch('/api/upload', {method:'POST', body:fd});
   const d = await r.json();
-  if (!d.ok) { alert(d.error); return; }
+  if (!d.ok) { note.hidden = true; alert(d.error); return; }
   attachment = {name: d.name, text: d.text};
-  const note = document.getElementById('attachnote');
-  note.textContent = 'Attached: ' + d.name + ' (sent with your next message)';
-  note.hidden = false; tray.classList.remove('open');
+  note.textContent = 'Attached: ' + d.name +
+    (d.truncated_for_chat
+      ? ` (${d.total_length.toLocaleString()} chars saved to her Corpus; she can recall more with seira_reference_recall)`
+      : ' (sent with your next message; also saved to her Corpus)');
+  tray.classList.remove('open');
 });
 
 // Voice capture: standalone golden mic beside Send.
@@ -269,7 +295,6 @@ micbtn.addEventListener('click', () => {
   rec.start();
 });
 
-// Load already scrolled to the latest message.
 requestAnimationFrame(scrollEnd);
 </script>
 {% endblock %}
