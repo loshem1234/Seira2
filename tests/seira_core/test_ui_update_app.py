@@ -134,3 +134,14 @@ def test_web_search_org_level_kill_switch(client, monkeypatch):
     r = c.post("/api/chat", json={"action": "send", "message": "hi", "web_search": True})
     assert r.json()["ok"] is True
     assert not any(t.get("name") == "web_search" for t in seen["tools"])
+
+
+def test_only_chat_page_locks_page_scroll(client):
+    """Regression: console (and every other page) must scroll normally.
+    Only the chat shell opts into the body-scroll lock."""
+    chat_body = client.get("/").text
+    console_body = client.get("/console").text
+    diary_body = client.get("/diary").text
+    assert '<body class="locked">' in chat_body
+    assert '<body class="locked">' not in console_body
+    assert '<body class="">' in console_body or '<body class="">' in diary_body
