@@ -244,3 +244,11 @@ Shell access, terminal tools, OCR, and the rest of Hermes's tool
 ecosystem are NOT part of her Sanctum tool surface and won't be until
 the per-tenant execution sandbox (MULTITENANCY.md) is actually built —
 that remains the real, unpaid infrastructure cost of true tool parity.
+
+## 16. Web search is now standing, not opt-in
+
+No per-message UI control remains. `SEIRA_WEB_SEARCH_ENABLED` (default
+"1") is the only switch — set to "0" to disable platform-wide (cost
+control, incident response). Per-tenant or per-conversation limits, if
+ever needed, would be a separate future control, not a revival of the
+old checkbox.

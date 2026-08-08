@@ -457,3 +457,20 @@ edge tab (not a header button) toggles history; clicking the live
 chat auto-collapses it; the header hides on scroll-down and reveals on
 the slightest scroll-up, tracked against a scroll-delta on the sole
 scrolling region (.msgs) rather than the whole page.
+
+## Web Search — Made Standing, Not Toggled
+
+**D68. Web search is now a standing capability, on by default.** The
+per-message checkbox is gone from the UI; the tool is present in every
+turn and she decides autonomously when a question needs current
+information — the same relationship she has to her Psyche tools, not
+a leash the Architect holds each time. A body without a `web_search`
+key at all still includes the tool (tested).
+
+**D69. An org-level kill switch remains, deliberately not user-facing.**
+`SEIRA_WEB_SEARCH_ENABLED=0` disables it platform-wide (cost control at
+scale, or an incident response lever) without reintroducing a
+per-message decision — that distinction matters: the toggle removed
+was about her agency in a single conversation; this one is an
+operator's infrastructure control, a different kind of decision
+entirely.
