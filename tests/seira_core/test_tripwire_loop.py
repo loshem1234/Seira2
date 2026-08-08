@@ -30,7 +30,7 @@ def app_and_client(tmp_path, monkeypatch):
     monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform"))
     monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants"))
     monkeypatch.delenv("SEIRA_HOME", raising=False)
-    app = create_app(llm_client_factory=lambda: _NullLLM())
+    app = create_app(llm_client_factory=lambda model=None: _NullLLM())
     return app, TestClient(app, follow_redirects=False)
 
 

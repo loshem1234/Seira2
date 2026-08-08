@@ -26,9 +26,10 @@ class ScriptedLLM:
     """Plays a fixed script: first a tool call recording an aspiration,
     then a text reply."""
 
-    def __init__(self):
+    def __init__(self, model=None):
         self.calls = 0
         self.seen_system = None
+        self.model = model
 
     def complete(self, system, messages, tools):
         self.calls += 1

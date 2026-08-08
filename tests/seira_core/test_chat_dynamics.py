@@ -46,7 +46,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.delenv("SEIRA_HOME", raising=False)
     monkeypatch.delenv("SEIRA_TENANT", raising=False)
     llm = EchoLLM()
-    app = create_app(llm_client_factory=lambda: llm)
+    app = create_app(llm_client_factory=lambda model=None: llm)
     c = TestClient(app, follow_redirects=False)
     c.llm = llm
     c.post("/signup", data={"email": "a@example.com",
