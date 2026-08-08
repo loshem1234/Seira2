@@ -30,6 +30,8 @@ from seira_core.tenancy import tenant_scope
 from seira_web import accounts as acct
 from seira_web.chat import AnthropicClient, run_turn
 
+WEB_SEARCH_GLOBALLY_ENABLED = os.environ.get("SEIRA_WEB_SEARCH_ENABLED", "1") != "0"
+
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
 
@@ -288,7 +290,11 @@ def create_app(llm_client_factory=None) -> FastAPI:
         conv_id = body.get("conv_id", "")
         model = (body.get("model") or "").strip() or None
         length_pref = (body.get("length_pref") or "").strip() or None
-        web_search = bool(body.get("web_search"))
+        # Standing capability now, not a per-message toggle: she decides
+        # when to use it, the same way she decides when to write to her
+        # own Psyche. WEB_SEARCH_GLOBALLY_ENABLED remains as an org-level
+        # kill switch (e.g. cost control at scale) — never a per-message UI.
+        web_search = WEB_SEARCH_GLOBALLY_ENABLED and bool(body.get("web_search", True))
         try:
             os.environ["SEIRA_TENANT"] = account["tenant_id"]
             from seira_bridge import SeiraPsycheProvider
