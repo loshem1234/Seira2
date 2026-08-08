@@ -335,6 +335,60 @@ SKILL_SCHEMA = {
 }
 
 
+DIARY_SCHEMA = {
+    "name": "seira_diary_write",
+    "description": (
+        "Write one entry to Seira's diary (Art. 41), in two parts: "
+        "'self' — her own first-person reflection, which MUST trace to a "
+        "real underlying record (a suspended contradiction, a pending "
+        "proposal, an affinity's weight moving, a dispensation, a "
+        "convergence-failure pattern); or 'architect' — a sincere, "
+        "objective observation about her Architect, grounded in the "
+        "relational pattern, descriptive rather than diagnostic — never "
+        "clinical labeling or hidden assessment. provenance is mandatory "
+        "for both: a diary free to invent itself would be performance, "
+        "not report."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["self", "architect"]},
+            "content": {"type": "string"},
+            "provenance": {"type": "array", "items": {"type": "string"},
+                           "description": "References to the real records this traces to."},
+        },
+        "required": ["kind", "content", "provenance"],
+    },
+}
+
+REFERENCE_LIST_SCHEMA = {
+    "name": "seira_reference_list",
+    "description": "List documents the Architect has given her as references "
+                    "in her Corpus — available to consult, not part of her "
+                    "identity.",
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+REFERENCE_RECALL_SCHEMA = {
+    "name": "seira_reference_recall",
+    "description": (
+        "Read a slice of a saved reference document by id or filename. "
+        "Documents can be large; page through with offset/length rather "
+        "than assuming it all fits at once. has_more in the result tells "
+        "you whether to ask for the next slice."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "ref": {"type": "string", "description": "ref_id or filename."},
+            "offset": {"type": "integer"},
+            "length": {"type": "integer", "description": "Max 40000 characters per call."},
+        },
+        "required": ["ref"],
+    },
+}
+
+
 class SeiraPsycheProvider(MemoryProvider):
     """Psyche as the fork's memory: character in the prompt, self-creation
     through tools, Corpus left to Hermes where it belongs."""
@@ -393,7 +447,8 @@ class SeiraPsycheProvider(MemoryProvider):
         # and Dispensation (awaits Phase 5 Instrument guardrails).
         return [RECORD_SCHEMA, RECALL_SCHEMA, ENGAGE_SCHEMA,
                 PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA,
-                SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA]
+                SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA,
+                DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         try:
@@ -518,6 +573,21 @@ class SeiraPsycheProvider(MemoryProvider):
                         args["name"], args["paradigm"], args["judgment_ref"]
                     )
                     return json.dumps({"ok": True, "skill_id": rec["skill_id"]})
+                if tool_name == "seira_diary_write":
+                    from seira_core.diary import DiaryStore
+                    rec = DiaryStore().write_entry(
+                        args["kind"], args["content"], list(args.get("provenance") or [])
+                    )
+                    return json.dumps({"ok": True, "seq": rec["seq"]})
+                if tool_name == "seira_reference_list":
+                    from seira_web import references as refs
+                    return json.dumps({"ok": True, "references": refs.list_references()})
+                if tool_name == "seira_reference_recall":
+                    from seira_web import references as refs
+                    result = refs.read_slice(
+                        args["ref"], args.get("offset", 0), args.get("length", 8000)
+                    )
+                    return json.dumps({"ok": result["found"], **result})
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
         except (KeyError, TypeError, ValueError) as e:
