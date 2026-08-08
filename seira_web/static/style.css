@@ -7,7 +7,10 @@
   --text: #E9DCB0; --text-dim: #A5966F;
   --rust: #B0442A; --sage: #7C8F6A;
 }
-html, body { height: 100%; overflow: hidden; }
+html, body { height: 100%; }
+/* Only the chat shell locks page-level scroll (its own .msgs region
+   scrolls internally instead); every other page scrolls normally. */
+body.locked { overflow: hidden; }
 * { box-sizing: border-box; }
 html { background: var(--void); }
 body {
@@ -55,7 +58,6 @@ a:focus, button:focus, input:focus, textarea:focus {
 
 /* Top-right nav hamburger + tray */
 .navtray a, .navtray button { display: block; }
-.navtray { right: 0; left: auto; bottom: auto; top: 3.2rem; }
 
 /* Tiny left-edge tab: the sidebar toggle */
 .edgetab {
@@ -182,6 +184,14 @@ a:focus, button:focus, input:focus, textarea:focus {
   font-size: .72rem; color: var(--text-dim); margin-bottom: .3rem; }
 .tray select { width: 100%; background: var(--void); border: 1px solid var(--edge);
   color: var(--text); padding: .35rem .5rem; font: inherit; border-radius: 3px; }
+
+/* Nav tray (top-right menu) is viewport-fixed and bounded, overriding
+   .tray's absolute positioning and min-width — it must never be
+   clipped by any ancestor's overflow, on any page. */
+.navtray {
+  position: fixed !important; top: 3.6rem; right: 1rem; left: auto; bottom: auto;
+  max-width: calc(100vw - 2rem); width: max-content; min-width: 12rem;
+}
 
 button.gold {
   background: none; border: 1px solid var(--gold); color: var(--gold);
