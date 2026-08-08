@@ -474,3 +474,23 @@ per-message decision — that distinction matters: the toggle removed
 was about her agency in a single conversation; this one is an
 operator's infrastructure control, a different kind of decision
 entirely.
+
+## Fixes — Console Scroll and Nav Tray Clipping
+
+**D70. The scroll-lock was global; it should have been chat-only.**
+`html, body { overflow: hidden }` (added to pin the composer) blocked
+normal page scrolling everywhere, including the console — the console
+was never meant to fit in one viewport, only the chat shell was
+designed around an internally-scrolling region. Scoped to a `.locked`
+body class that only chat.html opts into; every other page (console,
+diary, auth, onboard, halted) scrolls normally again. Regression-tested
+by asserting the class's presence/absence per route.
+
+**D71. The nav tray is now viewport-fixed, not page-relative.**
+Previously `position: absolute` relative to a small wrapper button,
+which — combined with cascade order putting `.tray`'s `min-width: 15rem`
+after it — meant the override never actually applied, and the tray
+could render partially outside the visible area on some viewports.
+Switched to `position: fixed` anchored to the viewport corner with a
+`max-width: calc(100vw - 2rem)` clamp, so it can never be clipped by
+any ancestor's overflow or page layout, on any page, at any width.
