@@ -24,7 +24,16 @@ import httpx
 from seira_web import conversations as convs
 
 MAX_TOOL_ITERATIONS = 8
+MAX_CONTINUATIONS = 4  # bounded auto-continue on text truncation
 DEFAULT_MODEL = os.environ.get("SEIRA_MODEL", "claude-sonnet-4-6")
+# Sonnet-class models support a high output ceiling; 2048 (the old default
+# here) was far below it and is exactly what was truncating her replies
+# and cutting comprehensive skill definitions mid-JSON. Configurable so it
+# can be raised further per model without a code change.
+DEFAULT_MAX_TOKENS = int(os.environ.get("SEIRA_MAX_TOKENS", "16000"))
+# Larger generations take longer; the old 120s timeout would itself cut
+# off a long, otherwise-successful response.
+REQUEST_TIMEOUT_SECONDS = float(os.environ.get("SEIRA_REQUEST_TIMEOUT", "600"))
 
 TOOL_LABELS = {
     "seira_psyche_record": "Writing her Psyche",
@@ -46,9 +55,11 @@ class LLMClient(Protocol):
 
 
 class AnthropicClient:
-    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL):
+    def __init__(self, api_key: Optional[str] = None, model: str = DEFAULT_MODEL,
+                 max_tokens: int = DEFAULT_MAX_TOKENS):
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._model = model
+        self._max_tokens = max_tokens
         if not self._api_key:
             raise RuntimeError(
                 "ANTHROPIC_API_KEY is not set; Seira cannot converse without "
@@ -56,7 +67,7 @@ class AnthropicClient:
 
     def complete(self, system, messages, tools):
         payload: Dict[str, Any] = {
-            "model": self._model, "max_tokens": 2048,
+            "model": self._model, "max_tokens": self._max_tokens,
             "system": system, "messages": messages,
         }
         if tools:
@@ -66,7 +77,7 @@ class AnthropicClient:
             headers={"x-api-key": self._api_key,
                      "anthropic-version": "2023-06-01",
                      "content-type": "application/json"},
-            json=payload, timeout=120.0)
+            json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
         resp.raise_for_status()
         return resp.json()
 
@@ -75,6 +86,47 @@ def _anthropic_tools(provider) -> List[Dict[str, Any]]:
     return [{"name": s["name"], "description": s["description"],
              "input_schema": s["parameters"]}
             for s in provider.get_tool_schemas()]
+
+
+def _tool_input_is_complete(tool_use_block: Dict[str, Any]) -> bool:
+    """A tool_use block cut off by max_tokens still deserializes (the API
+    guarantees valid JSON for what was emitted) but is missing whatever
+    came after the cut. The practical, generic signal is emptiness: a
+    call truncated early enough to matter typically loses its content
+    fields (e.g. a skill's paradigm text) before it loses everything.
+    This only matters combined with the caller's stop_reason check.
+    """
+    inp = tool_use_block.get("input")
+    return isinstance(inp, dict) and len(inp) > 0
+
+
+def _drain_truncation(client, system, messages, tools, response, emit):
+    """If a pure-text reply hit the max_tokens ceiling, transparently
+    continue it (bounded) and concatenate — the fix for 'her replies get
+    cut off, this should never happen' in the ordinary long-answer case.
+    Tool-call truncation is handled by the caller instead: a call cut
+    mid-JSON must not be silently stitched back together and executed.
+    """
+    content = response.get("content", [])
+    stop_reason = response.get("stop_reason")
+    tool_uses = [b for b in content if b.get("type") == "tool_use"]
+    if stop_reason != "max_tokens" or tool_uses:
+        return content, stop_reason
+
+    continuations = 0
+    while stop_reason == "max_tokens" and not tool_uses and continuations < MAX_CONTINUATIONS:
+        emit({"event": "phase", "label": "Continuing her answer (it ran long)"})
+        partial_text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
+        cont_messages = messages + [{"role": "assistant", "content": partial_text}]
+        response = client.complete(system, cont_messages, tools)
+        more = response.get("content", [])
+        stop_reason = response.get("stop_reason")
+        tool_uses = [b for b in more if b.get("type") == "tool_use"]
+        more_text = "".join(b.get("text", "") for b in more if b.get("type") == "text")
+        content = [{"type": "text", "text": partial_text + more_text}] + \
+            [b for b in more if b.get("type") != "text"]
+        continuations += 1
+    return content, stop_reason
 
 
 def run_turn(
@@ -117,9 +169,36 @@ def run_turn(
     for _ in range(MAX_TOOL_ITERATIONS):
         emit({"event": "phase", "label": "Thinking"})
         response = client.complete(system, messages, tools)
-        content = response.get("content", [])
+        content, stop_reason = _drain_truncation(
+            client, system, messages, tools, response, emit)
         tool_uses = [b for b in content if b.get("type") == "tool_use"]
         texts = [b.get("text", "") for b in content if b.get("type") == "text"]
+        truncated_tool = (
+            stop_reason == "max_tokens"
+            and tool_uses
+            and not _tool_input_is_complete(tool_uses[-1])
+        )
+
+        if truncated_tool:
+            # The model's own attempt was cut mid-JSON: never execute a
+            # malformed tool call. Tell it plainly and let it retry —
+            # this is the honest fix for "comprehensive skill blocked by
+            # a length limit", not a silent failure.
+            bad = tool_uses[-1]
+            emit({"event": "phase",
+                 "label": "That was too long for one step — asking her to split it"})
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": [{
+                "type": "tool_result", "tool_use_id": bad["id"], "is_error": True,
+                "content": (
+                    f"Your {bad['name']} call was cut off by the output length "
+                    "limit before it finished — nothing was written. Please "
+                    "resend it, either more concisely or split into multiple "
+                    "calls (e.g. author a shorter paradigm first, then revise "
+                    "it to add detail in a follow-up call)."
+                ),
+            }]})
+            continue
 
         if not tool_uses:
             final = "\n".join(t for t in texts if t).strip()
@@ -134,7 +213,13 @@ def run_turn(
         for tu in tool_uses:
             label = TOOL_LABELS.get(tu["name"], tu["name"])
             emit({"event": "tool", "tool": tu["name"], "label": label})
-            result_str = provider.handle_tool_call(tu["name"], tu.get("input") or {})
+            try:
+                result_str = provider.handle_tool_call(tu["name"], tu.get("input") or {})
+            except Exception as e:  # a bug or bad input must not crash the turn
+                result_str = json.dumps({
+                    "ok": False,
+                    "error": f"Internal error handling {tu['name']}: {e}",
+                })
             tool_events.append({"tool": tu["name"], "label": label,
                                 "result": result_str})
             convs.append(conv_id, "tool", tool=tu["name"], label=label,
