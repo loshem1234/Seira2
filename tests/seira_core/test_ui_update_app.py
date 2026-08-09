@@ -145,3 +145,11 @@ def test_only_chat_page_locks_page_scroll(client):
     assert '<body class="locked">' in chat_body
     assert '<body class="locked">' not in console_body
     assert '<body class="">' in console_body or '<body class="">' in diary_body
+
+
+def test_chat_page_has_mobile_drawer_backdrop(client):
+    """Regression for the mobile sidebar bug: the backdrop element must
+    exist so the drawer has a dimming layer and a tap-to-close target."""
+    body = client.get("/").text
+    assert 'id="backdrop"' in body
+    assert 'id="edgetab"' in body
