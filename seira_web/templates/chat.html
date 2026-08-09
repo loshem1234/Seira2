@@ -4,6 +4,7 @@
 {% block body %}
 <button class="edgetab" id="edgetab" aria-label="Toggle conversation history" title="History">‹</button>
 <div class="shell" id="shell">
+  <div class="backdrop" id="backdrop"></div>
   <aside class="sidebar" id="sidebar">
     <button class="gold newchat" id="newchat">New conversation</button>
     {% for c in conversations %}
@@ -229,6 +230,7 @@ function setSidebar(open) {
   edgetab.classList.toggle('shifted', open);
 }
 edgetab.addEventListener('click', () => setSidebar(shell.classList.contains('sidebar-collapsed')));
+document.getElementById('backdrop').addEventListener('click', () => setSidebar(false));
 document.getElementById('chatcol').addEventListener('click', () => {
   if (!shell.classList.contains('sidebar-collapsed')) setSidebar(false);
 }, {capture: true});
