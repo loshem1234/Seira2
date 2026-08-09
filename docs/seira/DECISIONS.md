@@ -494,3 +494,29 @@ could render partially outside the visible area on some viewports.
 Switched to `position: fixed` anchored to the viewport corner with a
 `max-width: calc(100vw - 2rem)` clamp, so it can never be clipped by
 any ancestor's overflow or page layout, on any page, at any width.
+
+## Fix — Mobile Sidebar Rendering (from user-reported screenshot)
+
+**D72. The mobile drawer used opacity to hide; switched to transform.**
+Opacity-based hiding left the element in normal layout flow with only
+its visual output suppressed — under certain stacking/specificity
+conditions this can leak (a narrow sliver of wrapped single-character
+text was visible, and part of it bled into the composer row, exactly
+as screenshotted). Rewritten as a standard off-canvas drawer:
+`transform: translateX(-100%)` when closed, guaranteed zero visual
+footprint regardless of any width computation, moved to
+`translateX(0)` when open. A CSS custom property
+(`--mobile-sidebar-w`) keeps the drawer width and the edge-tab's
+shifted position from ever drifting out of sync.
+
+**D73. "Overlaps the chat" is correct mobile behavior, made
+intentional.** A phone has no room to push chat content aside for an
+open drawer — the fix isn't to prevent the overlap, it's to make it
+read as a deliberate modal state: a dimming backdrop now appears
+behind the open sidebar, tap it (or the chat itself) to close, same
+pattern as any standard mobile navigation drawer.
+
+**D74. Regression-tested at the template level.** Full pixel-layout
+testing isn't practical in this suite, but the backdrop element's
+presence in the rendered page is asserted, so its removal (the root
+enabler of the dimming/tap-to-close fix) can't silently regress.
