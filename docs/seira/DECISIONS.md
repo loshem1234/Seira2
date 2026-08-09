@@ -520,3 +520,32 @@ pattern as any standard mobile navigation drawer.
 testing isn't practical in this suite, but the backdrop element's
 presence in the rendered page is asserted, so its removal (the root
 enabler of the dimming/tap-to-close fix) can't silently regress.
+
+## Fix — Stylesheet Cache-Busting (root cause of the "desktop now does this too")
+
+**D75. The real, likely root cause of both mobile-sidebar bug reports:
+style.css had no cache-busting.** Every CSS fix shipped across this
+entire project — the composer pinning, the scroll-lock scoping, the
+nav tray positioning, the mobile drawer rewrite — was served from the
+exact same URL, `/static/style.css`, with nothing telling a browser or
+edge cache that the content had changed. A returning visitor's browser
+could easily still be running CSS from several fixes ago, which fully
+explains screenshots that looked like "old bugs mutating into new
+ones": different visits could be running entirely different, stale
+versions of the stylesheet against the current HTML.
+
+**D76. Fixed with content-addressed URLs, computed once at app
+startup.** `/static/style.css?v=<sha256-of-file-contents>`: any future
+CSS change automatically produces a new URL, so a cache can hold the
+old file forever without it ever being served again by mistake. No
+manual version bumping, no risk of forgetting. Proven with a test that
+actually changes the file's content and asserts the served URL
+changes with it — not just that a version parameter exists.
+
+**D77. Defensive hardening alongside the real fix.** `.sidebar` now
+declares an explicit `position: static; transform: none;` baseline
+(previously relied on absence of any other rule, which is exactly the
+kind of assumption stale/mixed CSS can violate) and `.backdrop` is
+`display: none` by default, only becoming real inside the mobile media
+query — so even a worst-case stale-cache mismatch has a harder floor
+to fall through.
