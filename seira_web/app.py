@@ -47,6 +47,21 @@ def _founding_intellect_text() -> str:
     return "\n".join(parts)
 
 
+def _static_version() -> str:
+    """A content hash of every static asset, so the stylesheet URL
+    itself changes whenever its content does. Without this, browsers
+    and edge caches happily keep serving an old style.css forever at
+    the same URL — every CSS fix shipped in this project's history was
+    vulnerable to exactly that until now."""
+    import hashlib
+    h = hashlib.sha256()
+    static_dir = _HERE / "static"
+    for f in sorted(static_dir.rglob("*")):
+        if f.is_file():
+            h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
 def create_app(llm_client_factory=None) -> FastAPI:
     """llm_client_factory(model) is injectable for tests; defaults to
     Anthropic, constructing a client for whichever model the Architect
@@ -54,6 +69,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
     from seira_web.chat import DEFAULT_MODEL
     app = FastAPI(title="Seira — Sanctum")
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
+    templates.env.globals["static_version"] = _static_version()
     app.state.llm_client_factory = llm_client_factory or \
         (lambda model=None: AnthropicClient(model=model or DEFAULT_MODEL))
 
