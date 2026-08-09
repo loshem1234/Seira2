@@ -111,6 +111,7 @@ a:focus, button:focus, input:focus, textarea:focus {
   .shell:not(.sidebar-collapsed) .sidebar { transform: translateX(0); }
 
   .backdrop {
+    display: block;
     position: fixed; top: 62px; left: 0; right: 0; bottom: 0;
     background: rgba(0,0,0,.55); z-index: 35;
     opacity: 0; pointer-events: none; transition: opacity .22s ease;
@@ -119,12 +120,15 @@ a:focus, button:focus, input:focus, textarea:focus {
 
   .edgetab.shifted { left: var(--mobile-sidebar-w); z-index: 45; }
 }
-.sidebar { transition: opacity .18s ease, padding .18s ease; overflow: hidden; }
+.sidebar { transition: opacity .18s ease, padding .18s ease, transform .25s ease;
+  overflow: hidden; position: static; transform: none; }
 .sidebar {
   border-right: 1px solid var(--edge); padding: 1rem .9rem; overflow-y: auto;
   background: rgba(27,14,48,.5);
 }
 .sidebar h2 { margin: 0 0 .8rem; }
+.backdrop { display: none; }  /* inert on desktop; the mobile media query
+                                 below is the only place it becomes real */
 .convo { display: block; padding: .5rem .65rem; margin-bottom: .35rem;
   border: 1px solid transparent; color: var(--text-dim);
   font-size: .92rem; border-radius: 3px;
