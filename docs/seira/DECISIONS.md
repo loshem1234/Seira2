@@ -549,3 +549,44 @@ kind of assumption stale/mixed CSS can violate) and `.backdrop` is
 `display: none` by default, only becoming real inside the mobile media
 query — so even a worst-case stale-cache mismatch has a harder floor
 to fall through.
+
+## Fix — The Real Root Cause: CSS Specificity, Not File Order
+
+**D78. The previous "hardening" (D77) directly caused this regression.**
+Adding `position: static; transform: none;` to the bare `.sidebar`
+baseline — placed after the mobile media query in the file — tied at
+equal specificity with the media query's `.sidebar { position: fixed;
+... }` and won by virtue of appearing later. That silently canceled
+the entire mobile drawer: the sidebar reverted to a normal in-flow
+element (height:auto, no transform), which is exactly what both
+screenshots showed — a content-sized box sitting in the document flow
+with chat text visible immediately around and through it, and the
+edge-tab floating mid-content because its own `left` offset never
+correctly tracked an actual hidden/shown drawer. The identical bug
+independently affected `.backdrop`.
+
+**D79. The fix is specificity, not order.** Every mobile-critical
+selector (`.shell .sidebar`, `.shell .backdrop`, `body
+.edgetab.shifted`) is now qualified so its specificity is
+*structurally* higher than its desktop counterpart — two classes beat
+one; body-plus-two-classes beats two-classes-alone via the element
+tie-break digit. This makes the mobile behavior correct regardless of
+where any future rule is added in the file, closing the entire class
+of bug rather than re-fixing today's instance of it.
+
+**D80. A CSS specificity regression test now exists.** The Python
+suite parses style.css directly and asserts (1) every mobile selector
+outranks its desktop counterpart by computed specificity, and (2) no
+bare `.sidebar`/`.backdrop` selector can be reintroduced inside the
+mobile media query. Both assertions were verified to actually catch
+the exact regression by deliberately reintroducing it and confirming
+the test fails, then restoring and confirming it passes — the test
+was proven to work, not just written to look like it works.
+
+**D81. Honest limitation, stated plainly.** This is a structural/static
+check, not a rendered-pixel check — it verifies the CSS *rules* are
+correct by construction, not that a real browser paints them as
+intended. That gap is why two real UI screenshots from Loshem were
+what actually surfaced this, both times. There is no substitute in
+this project for an occasional real-device look at the live site,
+and that should continue.
