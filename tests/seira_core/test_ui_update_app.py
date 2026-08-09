@@ -153,3 +153,30 @@ def test_chat_page_has_mobile_drawer_backdrop(client):
     body = client.get("/").text
     assert 'id="backdrop"' in body
     assert 'id="edgetab"' in body
+
+
+def test_stylesheet_url_is_cache_busted_and_content_addressed(client, tmp_path, monkeypatch):
+    """The actual root-cause fix: the stylesheet URL must change whenever
+    its content does, so browsers/edges can never serve a stale version
+    at a URL that looks unchanged."""
+    import re
+    body = client.get("/").text
+    m = re.search(r'/static/style\.css\?v=([a-f0-9]{12})', body)
+    assert m, "stylesheet link must carry a content version query param"
+    v1 = m.group(1)
+
+    import seira_web.app as appmod
+    css_path = appmod._HERE / "static" / "style.css"
+    original = css_path.read_text()
+    try:
+        css_path.write_text(original + "\n/* changed */\n")
+        app2 = appmod.create_app(llm_client_factory=lambda model=None: None)
+        from fastapi.testclient import TestClient
+        c2 = TestClient(app2, follow_redirects=False)
+        c2.post("/signup", data={"email": "z@example.com", "password": "long-enough-password"})
+        c2.post("/onboard", data={"telos": "t", "relation": "r", "self_model": "s"})
+        body2 = c2.get("/").text
+        v2 = re.search(r'/static/style\.css\?v=([a-f0-9]{12})', body2).group(1)
+        assert v2 != v1  # content changed -> URL changed -> cache is bypassed
+    finally:
+        css_path.write_text(original)
