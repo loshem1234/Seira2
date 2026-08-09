@@ -69,7 +69,6 @@ a:focus, button:focus, input:focus, textarea:focus {
 }
 .edgetab:hover { color: var(--gold-bright); border-color: var(--gold); }
 .edgetab.shifted { left: 265px; }
-@media (max-width: 800px) { .edgetab.shifted { left: 0; } }
 
 /* Console horizontal tabs */
 .tabs { display: flex; gap: .4rem; border-bottom: 1px solid var(--edge);
@@ -87,10 +86,39 @@ a:focus, button:focus, input:focus, textarea:focus {
          transition: grid-template-columns .22s ease; }
 .shell.sidebar-collapsed { grid-template-columns: 0px 1fr; }
 .shell.sidebar-collapsed .sidebar { padding: 1rem 0; opacity: 0; pointer-events: none; }
-@media (max-width: 800px) { .shell { grid-template-columns: 0px 1fr; }
-  .shell:not(.sidebar-collapsed) { grid-template-columns: 78vw 1fr; }
-  .sidebar { position: fixed; top: 62px; bottom: 0; left: 0; z-index: 15;
-    width: 78vw; background: var(--deep); } }
+:root { --mobile-sidebar-w: min(82vw, 320px); }
+
+@media (max-width: 800px) {
+  /* Mobile: the sidebar is never part of the grid — it's an overlay
+     drawer, physically moved off-screen when closed via transform
+     (not opacity). Transform guarantees zero visual footprint
+     regardless of any width/specificity edge case; opacity alone can
+     leak a sliver depending on stacking context, which is exactly
+     what was happening. */
+  .shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; top: 62px; bottom: 0; left: 0; z-index: 40;
+    width: var(--mobile-sidebar-w); background: var(--deep);
+    box-shadow: 8px 0 32px rgba(0,0,0,.55);
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+  }
+  /* Re-declares the desktop opacity-based rule for mobile only, same
+     selector so cascade order (this comes later in the file) wins at
+     equal specificity — opacity is no longer how mobile hides/shows,
+     transform is. */
+  .shell.sidebar-collapsed .sidebar { opacity: 1; padding: 1rem .9rem; }
+  .shell:not(.sidebar-collapsed) .sidebar { transform: translateX(0); }
+
+  .backdrop {
+    position: fixed; top: 62px; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.55); z-index: 35;
+    opacity: 0; pointer-events: none; transition: opacity .22s ease;
+  }
+  .shell:not(.sidebar-collapsed) .backdrop { opacity: 1; pointer-events: auto; }
+
+  .edgetab.shifted { left: var(--mobile-sidebar-w); z-index: 45; }
+}
 .sidebar { transition: opacity .18s ease, padding .18s ease; overflow: hidden; }
 .sidebar {
   border-right: 1px solid var(--edge); padding: 1rem .9rem; overflow-y: auto;
