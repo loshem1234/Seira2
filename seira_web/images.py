@@ -44,7 +44,34 @@ def _index_path() -> Path:
 def _load_index() -> Dict[str, Dict[str, Any]]:
     if not _index_path().exists():
         return {}
-    return json.loads(_index_path().read_text(encoding="utf-8"))
+    index = json.loads(_index_path().read_text(encoding="utf-8"))
+    return _backfill_missing_tags(index)
+
+
+def _backfill_missing_tags(index: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Records saved before tagging existed have no 'tag' key at all —
+    a real migration gap, not hypothetical: it crashed in production the
+    first time a NEW save tried to check for collisions against an OLD,
+    tag-less record. Backfilled here, once, and persisted, so every
+    record converges to having a tag and every downstream access
+    (existing_tags checks, find_by_tag, set_tag) can rely on it being
+    present rather than needing its own defensive .get() everywhere."""
+    changed = False
+    used_tags = {r["tag"] for r in index.values() if "tag" in r}
+    for img_id, rec in index.items():
+        if "tag" not in rec:
+            base = _slugify(Path(rec.get("filename", "")).stem) if rec.get("filename") else img_id
+            candidate = base
+            n = 2
+            while candidate in used_tags:
+                candidate = f"{base}-{n}"
+                n += 1
+            rec["tag"] = candidate
+            used_tags.add(candidate)
+            changed = True
+    if changed:
+        _save_index(index)
+    return index
 
 
 def _save_index(index: Dict[str, Dict[str, Any]]) -> None:
