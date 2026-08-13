@@ -84,6 +84,14 @@ def tenant_root(tenant_id: str) -> Path:
     return root
 
 
+def tenant_scope_active() -> bool:
+    """True if a tenant_scope() is currently active in THIS execution
+    context (thread/task) — safe to call from anywhere; unlike an
+    environment variable, this can never be seen by a concurrently
+    running thread handling a different request."""
+    return _current_root.get() is not None
+
+
 @contextlib.contextmanager
 def tenant_scope(tenant_id: str) -> Iterator[Path]:
     """Bind all seira_core path resolution to one tenant's root.
