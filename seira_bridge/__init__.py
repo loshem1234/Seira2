@@ -466,6 +466,17 @@ class SeiraPsycheProvider(MemoryProvider):
         return "seira-psyche"
 
     def _scope(self):
+        from seira_core.tenancy import tenant_scope_active
+        if tenant_scope_active():
+            # The caller (seira_web's request dispatch) already entered a
+            # thread-/task-safe tenant_scope() around this whole call —
+            # nothing further to do, and re-deriving from an environment
+            # variable here would be both redundant and unsafe (env vars
+            # are process-global; a concurrent request's thread could
+            # have overwritten SEIRA_TENANT between when it was set and
+            # when this runs, silently pointing this call at the WRONG
+            # tenant's files — this was a real, confirmed bug).
+            return contextlib.nullcontext()
         tenant = os.environ.get("SEIRA_TENANT", "").strip()
         if tenant:
             from seira_core.tenancy import tenant_scope
