@@ -590,3 +590,38 @@ intended. That gap is why two real UI screenshots from Loshem were
 what actually surfaced this, both times. There is no substitute in
 this project for an occasional real-device look at the live site,
 and that should continue.
+
+## Vision, File Generation, and the Deliberately Deferred Piece
+
+**D82. Vision is bounded by the same discipline as everything else in
+this project.** An image only reaches the model as real bytes on the
+turn it's shared. Replaying it into every future turn forever would
+reintroduce exactly the unbounded-context growth just discussed for
+Psyche/Intellect — an image costs roughly as much as a large paragraph
+of text, and nothing about vision exempts it from that math. Past
+turns replay as a text marker ("[Image previously shared: cat.png
+(ref: img-xxxx)]"); seira_image_recall lets her deliberately look
+again, returning the real bytes as a proper tool_result image block —
+proven by a test that inspects the actual message shape sent to the
+model, not just that a function returns something.
+
+**D83. File generation covers the honest common case, not full
+fidelity.** md/docx/pdf all support a real but bounded structural
+subset (headings, bullets, paragraphs) — not full Markdown-to-Word
+conversion. Stated plainly in the tool's own description to the model,
+not just in code comments, so she doesn't overpromise what she can
+produce either.
+
+**D84. A real bug caught immediately: double extensions.** The first
+version of create_file appended the format extension even when the
+caller's filename already had one — "report.docx" became
+"report.docx.docx". Fixed by stripping any existing extension from the
+display name first; caught by the very first smoke test run, before
+it ever reached the test suite.
+
+**D85. Image generation is deliberately NOT built.** Anthropic's API
+has no native image generation — giving her that capability means
+choosing and paying for a separate third-party vendor (OpenAI images,
+Google Imagen, Stability, etc.), a real cost and provider decision
+that isn't mine to make silently. Flagged to the Architect explicitly
+rather than picked by default.
