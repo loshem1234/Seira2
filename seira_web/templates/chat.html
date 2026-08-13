@@ -16,7 +16,11 @@
     <div class="msgs" id="msgs">
       {% for r in history %}
         {% if r.kind == 'user' %}
-        <div class="msg user" data-id="{{ r.id }}"><div class="who">You</div><span class="body">{{ r.text }}</span>
+        <div class="msg user" data-id="{{ r.id }}"><div class="who">You</div>
+          {% if r.image_ref %}
+          <img class="chatimg" src="/api/images/{{ r.image_ref }}" alt="{{ r.image_name or 'shared image' }}">
+          {% endif %}
+          <span class="body">{{ r.text }}</span>
           <div class="actions">
             <button class="iconbtn act-edit">edit</button>
             <button class="iconbtn act-copy">copy</button>
@@ -106,8 +110,9 @@ function esc(s) { const d = document.createElement('div');
   d.textContent = s; return d.innerHTML; }
 function scrollEnd() { msgs.scrollTop = msgs.scrollHeight; }
 
-function addUser(text) {
-  const node = el(`<div class="msg user"><div class="who">You</div>
+function addUser(text, imgSrc) {
+  const imgHtml = imgSrc ? `<img class="chatimg" src="${esc(imgSrc)}" alt="shared image">` : '';
+  const node = el(`<div class="msg user"><div class="who">You</div>${imgHtml}
     <span class="body">${esc(text)}</span>
     <div class="actions"><button class="iconbtn act-edit">edit</button>
     <button class="iconbtn act-copy">copy</button></div></div>`);
@@ -185,16 +190,19 @@ function autoGrow() {
 }
 input.addEventListener('input', autoGrow);
 
+let pendingImagePreviewUrl = null;
 function sendNow() {
   const text = input.value.trim();
   if (!text && !attachment) return;
-  const label = attachment
-    ? (attachment.kind === 'image' ? `[Image: ${attachment.name}] ${text}` : `[${attachment.name}] ${text}`)
-    : text;
-  addUser(label.trim());
+  if (attachment && attachment.kind === 'image') {
+    addUser(text, pendingImagePreviewUrl);
+  } else {
+    addUser(attachment ? `[${attachment.name}] ${text}` : text);
+  }
   const body = {action:'send', message:text};
   if (attachment) body.attachment = attachment;
-  attachment = null; document.getElementById('attachnote').hidden = true;
+  attachment = null; pendingImagePreviewUrl = null;
+  document.getElementById('attachnote').hidden = true;
   input.value = ''; autoGrow();
   stream(body);
 }
