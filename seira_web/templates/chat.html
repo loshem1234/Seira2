@@ -280,18 +280,59 @@ document.addEventListener('click', (e) => {
 document.querySelector('.tray label[for="fileinput"]').addEventListener('click',
   () => document.getElementById('fileinput').click());
 document.getElementById('fileinput').addEventListener('change', async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  const fd = new FormData(); fd.append('file', f);
+  const f = e.target.files[0]; if (!f) { return; }
   const note = document.getElementById('attachnote');
-  note.textContent = 'Uploading ' + f.name + '…'; note.hidden = false;
-  const r = await fetch('/api/upload', {method:'POST', body:fd});
-  const d = await r.json();
-  if (!d.ok) { note.hidden = true; alert(d.error); return; }
-  attachment = {name: d.name, text: d.text};
-  note.textContent = 'Attached: ' + d.name +
-    (d.truncated_for_chat
-      ? ` (${d.total_length.toLocaleString()} chars saved to her Corpus; she can recall more with seira_reference_recall)`
-      : ' (sent with your next message; also saved to her Corpus)');
+  note.textContent = 'Uploading ' + f.name + '\u2026'; note.hidden = false;
+
+  const fd = new FormData(); fd.append('file', f);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  let d;
+  try {
+    const r = await fetch('/api/upload', {method: 'POST', body: fd,
+                                          signal: controller.signal});
+    clearTimeout(timeoutId);
+    if (!r.ok) {
+      let msg = `Upload failed (HTTP ${r.status}).`;
+      try { const errBody = await r.json(); if (errBody.error) msg = errBody.error; }
+      catch (_) { /* response wasn't JSON; keep the generic message */ }
+      note.textContent = msg; setTimeout(() => { note.hidden = true; }, 4000);
+      return;
+    }
+    d = await r.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const msg = err.name === 'AbortError'
+      ? 'Upload timed out after 30s \u2014 check your connection and try again.'
+      : `Upload failed: ${err.message || err}`;
+    note.textContent = msg; setTimeout(() => { note.hidden = true; }, 4000);
+    return;
+  }
+
+  if (!d.ok) {
+    note.textContent = d.error || 'Upload failed.';
+    setTimeout(() => { note.hidden = true; }, 4000);
+    return;
+  }
+
+  if (d.kind === 'image') {
+    attachment = {kind: 'image', name: d.name, img_id: d.img_id, tag: d.tag};
+    pendingImagePreviewUrl = URL.createObjectURL(f);
+    note.innerHTML = '';
+    const thumb = document.createElement('img');
+    thumb.src = pendingImagePreviewUrl;
+    thumb.style.cssText = 'max-height:3.2rem;border-radius:4px;vertical-align:middle;margin-right:.5rem';
+    note.appendChild(thumb);
+    note.appendChild(document.createTextNode(
+      `Attached: ${d.name} (tag: ${d.tag} \u2014 ask her to rename it if you'd like)`));
+  } else {
+    attachment = {kind: 'document', name: d.name, text: d.text};
+    note.textContent = 'Attached: ' + d.name +
+      (d.truncated_for_chat
+        ? ` (${d.total_length.toLocaleString()} chars saved to her Corpus; she can recall more with seira_reference_recall)`
+        : ' (sent with your next message; also saved to her Corpus)');
+  }
   tray.classList.remove('open');
 });
 
