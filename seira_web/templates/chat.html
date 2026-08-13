@@ -43,8 +43,8 @@
           <span></span><span></span><span></span>
         </button>
         <div class="tray" id="tray">
-          <label for="fileinput">Attach document (.txt, .md, .pdf — up to 100MB)</label>
-          <input id="fileinput" type="file" accept=".txt,.md,.markdown,.pdf" hidden>
+          <label for="fileinput">Attach document or image (up to 100MB)</label>
+          <input id="fileinput" type="file" accept=".txt,.md,.markdown,.pdf,.png,.jpg,.jpeg,.webp,.gif" hidden>
           <div class="traysection">
             <span class="trayheading">Web search</span>
             <span class="muted" style="font-size:.82rem">Always available to her —
@@ -124,6 +124,11 @@ function addAssistant(text, id) {
 function addChip(label) {
   msgs.appendChild(el(`<div class="toolchip">${esc(label)}</div>`)); scrollEnd();
 }
+function addDownloadCard(filename, path) {
+  msgs.appendChild(el(`<a class="toolchip downloadcard" href="${esc(path)}"
+    download>&#8681; ${esc(filename)}</a>`));
+  scrollEnd();
+}
 let activityEl = null;
 function setActivity(label) {
   if (!activityEl) { activityEl = el(
@@ -158,6 +163,9 @@ async function stream(body) {
         } else if (ev.event === 'phase') setActivity(ev.label);
         else if (ev.event === 'tool') { clearActivity(); addChip(ev.label);
           setActivity('Thinking'); }
+        else if (ev.event === 'file_created') {
+          addDownloadCard(ev.filename || 'file', ev.download_path);
+        }
         else if (ev.event === 'reply') { clearActivity();
           addAssistant(ev.text, ev.assistant_id); }
         else if (ev.event === 'error') { clearActivity();
@@ -180,7 +188,10 @@ input.addEventListener('input', autoGrow);
 function sendNow() {
   const text = input.value.trim();
   if (!text && !attachment) return;
-  addUser(attachment ? `[${attachment.name}] ${text}` : text);
+  const label = attachment
+    ? (attachment.kind === 'image' ? `[Image: ${attachment.name}] ${text}` : `[${attachment.name}] ${text}`)
+    : text;
+  addUser(label.trim());
   const body = {action:'send', message:text};
   if (attachment) body.attachment = attachment;
   attachment = null; document.getElementById('attachnote').hidden = true;
