@@ -625,3 +625,43 @@ choosing and paying for a separate third-party vendor (OpenAI images,
 Google Imagen, Stability, etc.), a real cost and provider decision
 that isn't mine to make silently. Flagged to the Architect explicitly
 rather than picked by default.
+
+## Fix — Vision Display, Upload Robustness, and Tagged Recall
+
+**D86. The likely real cause of "she acts like she didn't get it":
+content-type detection was not robust.** The upload endpoint trusted
+the browser-supplied content_type alone; some mobile browsers and
+gallery apps send a generic or absent type for images, which would
+silently route the file down the DOCUMENT path, fail the extension
+check, and return an error the user could easily miss. Fixed with an
+extension-based fallback (tested explicitly with a PNG uploaded under
+`application/octet-stream`) so detection no longer depends on any one
+browser's behavior being correct.
+
+**D87. iPhone HEIC photos get a specific, actionable error, not a
+silent failure.** HEIC/HEIF (the iPhone camera default) isn't
+supported yet; rather than a generic "unsupported file" message, the
+error names the format and gives the two concrete ways to fix it on
+the spot (share-sheet JPEG export, or a camera settings change).
+Real conversion support is a stated follow-up, not faked.
+
+**D88. The image itself is now genuinely visible in the chat, twice
+over.** Live send shows the actual picked file immediately via a
+local object URL; a page reload shows it via the new `/api/images/{ref}`
+endpoint, which serves the real stored bytes, tenant-scoped and
+auth-gated like everything else. Tested at the template level: the
+served page contains both the real `<img>` tag and the correct source
+URL after a full upload → chat → reload cycle.
+
+**D89. Tagging, built as asked — "my portrait ref," recallable by
+that name.** Every image gets a tag: user-supplied at upload (a
+prompt asks for one) or auto-derived from the filename, always
+slugified, always collision-checked — a duplicate tag is refused
+outright, never silently overwriting an earlier image under a shared
+name. `seira_image_recall` now takes a `ref` (id or tag), so "look at
+my portrait ref again" resolves the same way "recall doc.pdf" already
+does for text references — one consistent pattern across both.
+`seira_image_tag` lets her rename an existing image's tag mid-
+conversation; `seira_image_list` gives her a browsable gallery of
+what's saved, so she doesn't need to already know the exact tag to
+find it.
