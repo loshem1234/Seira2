@@ -365,8 +365,20 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     def _dispatch(account, body, emit=None):
         """Shared by the JSON and SSE endpoints. Actions: send | regenerate
-        | edit. Returns the run_turn result dict."""
-        import os
+        | edit. Returns the run_turn result dict.
+
+        No process-global state is touched here — tenant scoping is
+        entirely via tenant_scope(), a contextvar that is correctly
+        isolated per thread/task, so concurrent requests (e.g. this SSE
+        endpoint's per-request threading.Thread) can never see or
+        clobber each other's tenant. An earlier version of this function
+        also set a global SEIRA_TENANT environment variable as a second,
+        redundant scoping mechanism for the provider — environment
+        variables are process-wide, not thread-local, so two overlapping
+        requests could race and read each other's tenant id, silently
+        pointing a request at the wrong tenant's files. That was real
+        and confirmed, not hypothetical; removed rather than patched
+        around, since it was never actually needed."""
         from seira_web.chat import edit_and_rerun, regenerate as regen
         from seira_web import conversations as convs
         action = body.get("action", "send")
@@ -378,34 +390,30 @@ def create_app(llm_client_factory=None) -> FastAPI:
         # own Psyche. WEB_SEARCH_GLOBALLY_ENABLED remains as an org-level
         # kill switch (e.g. cost control at scale) — never a per-message UI.
         web_search = WEB_SEARCH_GLOBALLY_ENABLED and bool(body.get("web_search", True))
-        try:
-            os.environ["SEIRA_TENANT"] = account["tenant_id"]
-            from seira_bridge import SeiraPsycheProvider
-            provider = SeiraPsycheProvider()
-            client = app.state.llm_client_factory(model)
-            with tenant_scope(account["tenant_id"]):
-                if not conv_id:
-                    conv_id = convs.create_conversation()["conv_id"]
-                if action == "send":
-                    message = (body.get("message") or "").strip()
-                    attachment = body.get("attachment")
-                    if not message and not attachment:
-                        raise ValueError("Empty message.")
-                    return conv_id, run_turn(
-                        provider, client, conv_id, message,
-                        emit=emit, attachment=attachment, length_pref=length_pref,
-                        web_search=web_search)
-                if action == "regenerate":
-                    return conv_id, regen(provider, client, conv_id, emit=emit,
-                                          length_pref=length_pref)
-                if action == "edit":
-                    return conv_id, edit_and_rerun(
-                        provider, client, conv_id,
-                        int(body["target_id"]), body.get("new_text", ""),
-                        emit=emit, length_pref=length_pref)
-                raise ValueError(f"Unknown action {action!r}.")
-        finally:
-            os.environ.pop("SEIRA_TENANT", None)
+        from seira_bridge import SeiraPsycheProvider
+        provider = SeiraPsycheProvider()
+        client = app.state.llm_client_factory(model)
+        with tenant_scope(account["tenant_id"]):
+            if not conv_id:
+                conv_id = convs.create_conversation()["conv_id"]
+            if action == "send":
+                message = (body.get("message") or "").strip()
+                attachment = body.get("attachment")
+                if not message and not attachment:
+                    raise ValueError("Empty message.")
+                return conv_id, run_turn(
+                    provider, client, conv_id, message,
+                    emit=emit, attachment=attachment, length_pref=length_pref,
+                    web_search=web_search)
+            if action == "regenerate":
+                return conv_id, regen(provider, client, conv_id, emit=emit,
+                                      length_pref=length_pref)
+            if action == "edit":
+                return conv_id, edit_and_rerun(
+                    provider, client, conv_id,
+                    int(body["target_id"]), body.get("new_text", ""),
+                    emit=emit, length_pref=length_pref)
+            raise ValueError(f"Unknown action {action!r}.")
 
     @app.post("/api/chat")
     async def api_chat(request: Request, account: dict = Depends(require_account)):
