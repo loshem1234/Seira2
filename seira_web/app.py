@@ -16,6 +16,7 @@ with 503 — the tripwire's word is final until her Architect clears it.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -33,6 +34,7 @@ from seira_web.chat import AnthropicClient, run_turn
 WEB_SEARCH_GLOBALLY_ENABLED = os.environ.get("SEIRA_WEB_SEARCH_ENABLED", "1") != "0"
 
 _HERE = Path(__file__).parent
+logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
 
 FOUNDING_DIR = _HERE.parent / "seira_founding"
@@ -260,6 +262,26 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     @app.post("/api/upload")
     async def upload(request: Request, account: dict = Depends(require_account)):
+        """Wrapped so ANY unhandled exception returns its real type and
+        message directly in the response — a bare 500 with no body gives
+        the person nothing to act on and gives us nothing to diagnose
+        from. This is a diagnostic aid as much as a UX fix; once the
+        actual cause of a real crash here is found, the specific case
+        should get its own clean 400 with a helpful message instead of
+        relying on this catch-all."""
+        try:
+            return await _upload_impl(request, account)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("Upload failed with an unhandled exception:\n%s", tb)
+            return JSONResponse(
+                {"ok": False,
+                 "error": f"Server error: {type(e).__name__}: {e}",
+                 "trace_tail": tb.strip().splitlines()[-1]},
+                status_code=500)
+
+    async def _upload_impl(request: Request, account: dict):
         from seira_web.documents import MAX_UPLOAD_BYTES, SUPPORTED_EXTENSIONS, extract_text
         from seira_web import references as refs
         from seira_web.images import SUPPORTED_MEDIA_TYPES, MAX_IMAGE_BYTES, save_image
