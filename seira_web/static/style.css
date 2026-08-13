@@ -89,6 +89,15 @@ a:focus, button:focus, input:focus, textarea:focus {
 :root { --mobile-sidebar-w: min(82vw, 320px); }
 
 @media (max-width: 800px) {
+  /* Mobile: the sidebar is never part of the grid — it's an overlay
+     drawer, physically moved off-screen when closed via transform
+     (not opacity). Every rule here is qualified with .shell so its
+     specificity (two classes) is structurally higher than any bare
+     .sidebar / .backdrop baseline declared elsewhere in the file —
+     this makes the mobile behavior immune to file-ordering mistakes
+     by construction, not by careful arrangement (a bare-.sidebar
+     baseline rule accidentally placed after this block once silently
+     cancelled it; that class of bug is now impossible here). */
   .shell { grid-template-columns: 1fr; }
   .shell .sidebar {
     position: fixed; top: 62px; bottom: 0; left: 0; z-index: 40;
@@ -117,6 +126,8 @@ a:focus, button:focus, input:focus, textarea:focus {
   background: rgba(27,14,48,.5);
 }
 .sidebar h2 { margin: 0 0 .8rem; }
+/* Desktop default only: on mobile, .shell .backdrop (higher specificity,
+   above) always wins regardless of where this line sits in the file. */
 .backdrop { display: none; }
 .convo { display: block; padding: .5rem .65rem; margin-bottom: .35rem;
   border: 1px solid transparent; color: var(--text-dim);
@@ -151,6 +162,11 @@ a:focus, button:focus, input:focus, textarea:focus {
   border: 1px solid var(--edge); border-radius: 999px;
   padding: .18rem .8rem; font-family: ui-monospace, monospace; }
 .toolchip::before { content: "✦"; color: var(--gold); }
+.toolchip.downloadcard {
+  color: var(--gold); border-color: var(--gold-dim); cursor: pointer;
+}
+.toolchip.downloadcard::before { content: "\2913"; }
+.toolchip.downloadcard:hover { background: rgba(212,175,55,.1); color: var(--gold-bright); }
 
 /* Live activity: the breathing line */
 .activity { align-self: flex-start; display: flex; align-items: center;
@@ -206,6 +222,9 @@ a:focus, button:focus, input:focus, textarea:focus {
 .tray select { width: 100%; background: var(--void); border: 1px solid var(--edge);
   color: var(--text); padding: .35rem .5rem; font: inherit; border-radius: 3px; }
 
+/* Nav tray (top-right menu) is viewport-fixed and bounded, overriding
+   .tray's absolute positioning and min-width — it must never be
+   clipped by any ancestor's overflow, on any page. */
 .navtray {
   position: fixed !important; top: 3.6rem; right: 1rem; left: auto; bottom: auto;
   max-width: calc(100vw - 2rem); width: max-content; min-width: 12rem;
