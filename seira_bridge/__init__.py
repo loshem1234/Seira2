@@ -415,16 +415,45 @@ CREATE_FILE_SCHEMA = {
 IMAGE_RECALL_SCHEMA = {
     "name": "seira_image_recall",
     "description": (
-        "Look again at a previously shared image by its reference id. "
-        "Past images are not kept in view automatically — call this "
+        "Look again at a previously shared image, by its ref id (e.g. "
+        "'img-a1b2c3d4e5f6') OR by its tag (e.g. 'my-portrait-ref'). Past "
+        "images are not kept in view automatically — call this "
         "deliberately when you need to actually see one again, rather "
-        "than relying on a memory of what it showed."
+        "than relying on a memory of what it showed. Use "
+        "seira_image_list first if you don't remember the exact tag."
     ),
     "parameters": {
         "type": "object",
-        "properties": {"img_id": {"type": "string"}},
-        "required": ["img_id"],
+        "properties": {"ref": {"type": "string",
+                               "description": "img_id or tag"}},
+        "required": ["ref"],
     },
+}
+
+IMAGE_TAG_SCHEMA = {
+    "name": "seira_image_tag",
+    "description": (
+        "Give a previously shared image a memorable tag (e.g. "
+        "'my-portrait-ref') so it — and only it — can be recalled by that "
+        "name later instead of an opaque id. Tags must be unique; a "
+        "collision is refused, not silently overwritten."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "img_id": {"type": "string"},
+            "tag": {"type": "string"},
+        },
+        "required": ["img_id", "tag"],
+    },
+}
+
+IMAGE_LIST_SCHEMA = {
+    "name": "seira_image_list",
+    "description": "List every image saved in the Corpus, with its id, "
+                    "tag, and filename — a gallery to browse by name "
+                    "before recalling one.",
+    "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
 
@@ -488,7 +517,8 @@ class SeiraPsycheProvider(MemoryProvider):
                 PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA,
                 SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA,
                 DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA,
-                CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA]
+                CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
+                IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         try:
@@ -647,13 +677,26 @@ class SeiraPsycheProvider(MemoryProvider):
                     # block — Anthropic's tool_result content supports
                     # image blocks natively.
                     from seira_web.images import get_image_block, image_record
-                    rec = image_record(args["img_id"])
+                    ref = args["ref"]
+                    rec = image_record(ref)
                     if rec is None:
                         return json.dumps({"ok": False,
-                                           "error": f"No image {args['img_id']!r}."})
-                    block = get_image_block(args["img_id"])
+                                           "error": f"No image matching {ref!r}."})
+                    block = get_image_block(ref)
                     return json.dumps({"ok": True, "__image_block__": block,
-                                       "filename": rec["filename"]})
+                                       "filename": rec["filename"], "tag": rec["tag"]})
+                if tool_name == "seira_image_tag":
+                    from seira_web.images import set_tag
+                    try:
+                        rec = set_tag(args["img_id"], args["tag"])
+                        return json.dumps({"ok": True, "tag": rec["tag"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_image_list":
+                    from seira_web.images import list_images
+                    imgs = [{"img_id": i["img_id"], "tag": i["tag"],
+                            "filename": i["filename"]} for i in list_images()]
+                    return json.dumps({"ok": True, "images": imgs})
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
         except (KeyError, TypeError, ValueError) as e:
