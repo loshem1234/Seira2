@@ -180,3 +180,79 @@ def test_stylesheet_url_is_cache_busted_and_content_addressed(client, tmp_path, 
         assert v2 != v1  # content changed -> URL changed -> cache is bypassed
     finally:
         css_path.write_text(original)
+
+
+def test_image_upload_works_even_with_generic_content_type(client):
+    """The actual reported bug's likely cause: some mobile browsers send
+    a generic/missing content_type for images. Extension must be a
+    reliable fallback."""
+    r = client.post("/api/upload", files={
+        "file": ("photo.png", b"\x89PNG fake bytes", "application/octet-stream"),
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True and body["kind"] == "image"
+
+
+def test_heic_upload_gets_a_clear_actionable_error(client):
+    r = client.post("/api/upload", files={
+        "file": ("IMG_1234.HEIC", b"fake heic bytes", "image/heic"),
+    })
+    assert r.status_code == 400
+    assert "HEIC" in r.json()["error"]
+
+
+def test_image_tag_prompt_persists_through_upload(client):
+    r = client.post("/api/upload", data={"tag": "my portrait ref"}, files={
+        "file": ("selfie.jpg", b"\xff\xd8 fake jpeg bytes", "image/jpeg"),
+    })
+    assert r.status_code == 200
+    assert r.json()["tag"] == "my-portrait-ref"
+
+
+def test_image_serving_endpoint_returns_real_bytes(client):
+    r = client.post("/api/upload", files={
+        "file": ("cat.png", b"real png bytes here", "image/png"),
+    })
+    img_id = r.json()["img_id"]
+    r2 = client.get(f"/api/images/{img_id}")
+    assert r2.status_code == 200
+    assert r2.content == b"real png bytes here"
+    assert r2.headers["content-type"] == "image/png"
+
+
+def test_image_serving_by_tag_also_works(client):
+    client.post("/api/upload", data={"tag": "my portrait ref"}, files={
+        "file": ("p.png", b"portrait bytes", "image/png"),
+    })
+    r = client.get("/api/images/my-portrait-ref")
+    assert r.status_code == 200 and r.content == b"portrait bytes"
+
+
+def test_image_appears_inline_in_chat_history_after_reload(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform2"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants2"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+
+    class StubLLM:
+        def complete(self, system, messages, tools):
+            return {"content": [{"type": "text", "text": "I see it."}],
+                    "stop_reason": "end_turn"}
+
+    app = appmod.create_app(llm_client_factory=lambda model=None: StubLLM())
+    c = TestClient(app, follow_redirects=False)
+    c.post("/signup", data={"email": "img@example.com", "password": "long-enough-password"})
+    c.post("/onboard", data={"telos": "t", "relation": "r", "self_model": "s"})
+
+    r = c.post("/api/upload", files={"file": ("cat.png", b"cat bytes", "image/png")})
+    img_id = r.json()["img_id"]
+    c.post("/api/chat", json={
+        "action": "send", "message": "what is this",
+        "attachment": {"kind": "image", "name": "cat.png", "img_id": img_id},
+    })
+    page = c.get("/").text
+    assert f'/api/images/{img_id}' in page
+    assert '<img class="chatimg"' in page

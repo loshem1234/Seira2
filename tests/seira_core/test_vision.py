@@ -117,7 +117,7 @@ def test_image_recall_returns_real_image_block_in_tool_result(founded):
             if self.calls == 1:
                 return {"content": [{"type": "tool_use", "id": "tu1",
                                      "name": "seira_image_recall",
-                                     "input": {"img_id": rec["img_id"]}}],
+                                     "input": {"ref": rec["img_id"]}}],
                         "stop_reason": "tool_use"}
             # Second call: assert the tool_result carried the real image.
             last = messages[-1]
@@ -135,5 +135,69 @@ def test_image_recall_returns_real_image_block_in_tool_result(founded):
 def test_image_recall_missing_id_is_honest_not_a_crash(founded):
     provider, conv_id = founded
     out = json.loads(provider.handle_tool_call("seira_image_recall",
-                                                {"img_id": "img-nonexistent"}))
+                                                {"ref": "img-nonexistent"}))
     assert out["ok"] is False and "error" in out
+
+
+def test_default_tag_from_filename_and_collision_disambiguation(founded):
+    from seira_web import images
+    r1 = images.save_image("My Portrait Ref.png", "image/png", b"bytes one")
+    assert r1["tag"] == "my-portrait-ref"
+    r2 = images.save_image("My Portrait Ref.jpg", "image/jpeg", b"bytes two")
+    assert r2["tag"] != "my-portrait-ref"  # disambiguated, not silently shadowed
+    assert r2["tag"].startswith("my-portrait-ref-")
+
+
+def test_explicit_tag_at_upload(founded):
+    from seira_web import images
+    rec = images.save_image("IMG_4821.png", "image/png", b"bytes",
+                            tag="my portrait ref")
+    assert rec["tag"] == "my-portrait-ref"
+
+
+def test_retag_and_collision_refused(founded):
+    from seira_web import images
+    a = images.save_image("a.png", "image/png", b"a-bytes")
+    b = images.save_image("b.png", "image/png", b"b-bytes")
+    images.set_tag(a["img_id"], "my portrait ref")
+    assert images.find_by_tag("my-portrait-ref")["img_id"] == a["img_id"]
+    with pytest.raises(ValueError):
+        images.set_tag(b["img_id"], "my portrait ref")  # collision refused
+
+
+def test_recall_by_tag_returns_same_image_as_by_id(founded):
+    from seira_web import images
+    rec = images.save_image("sunset.png", "image/png", b"sunset bytes",
+                            tag="favorite sunset")
+    by_id = images.get_image_block(rec["img_id"])
+    by_tag = images.get_image_block("favorite-sunset")
+    assert by_id == by_tag
+
+
+def test_tool_recall_by_tag_end_to_end(founded):
+    provider, conv_id = founded
+    from seira_web import images
+    images.save_image("port.png", "image/png", b"portrait bytes",
+                      tag="my portrait ref")
+    out = json.loads(provider.handle_tool_call("seira_image_recall",
+                                               {"ref": "my-portrait-ref"}))
+    assert out["ok"] is True and out["tag"] == "my-portrait-ref"
+
+
+def test_image_list_tool(founded):
+    provider, conv_id = founded
+    from seira_web import images
+    images.save_image("a.png", "image/png", b"x", tag="alpha")
+    images.save_image("b.png", "image/png", b"y", tag="beta")
+    out = json.loads(provider.handle_tool_call("seira_image_list", {}))
+    tags = {i["tag"] for i in out["images"]}
+    assert tags == {"alpha", "beta"}
+
+
+def test_image_tag_tool_end_to_end(founded):
+    provider, conv_id = founded
+    from seira_web import images
+    rec = images.save_image("c.png", "image/png", b"z")
+    out = json.loads(provider.handle_tool_call(
+        "seira_image_tag", {"img_id": rec["img_id"], "tag": "my new tag"}))
+    assert out["ok"] is True and out["tag"] == "my-new-tag"
