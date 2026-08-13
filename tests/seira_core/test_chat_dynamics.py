@@ -138,13 +138,14 @@ def test_stream_emits_real_activity_then_reply(client):
     assert reply["text"].startswith("answer#")
 
 
-def test_upload_txt_and_refuse_binary(client):
+def test_upload_txt_and_refuse_unsupported_type(client):
     r = client.post("/api/upload",
                     files={"file": ("notes.txt", b"the moon is a harsh mistress",
                                     "text/plain")})
     assert r.status_code == 200 and r.json()["ok"] is True
     r = client.post("/api/upload",
-                    files={"file": ("image.png", b"\x89PNG...", "image/png")})
+                    files={"file": ("archive.zip", b"PK\x03\x04...",
+                                    "application/zip")})
     assert r.status_code == 400
     r = client.post("/api/upload",
                     files={"file": ("bad.txt", b"\xff\xfe\x00broken",
