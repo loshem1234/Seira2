@@ -702,3 +702,53 @@ checks `tenant_scope_active()` first and no-ops if an ambient scope is
 already present; the env var remains only as a fallback for contexts
 with no surrounding scope at all (the standalone Hermes integration
 path), verified by a dedicated test that this fallback still works.
+
+## Fix — Diagnostic Surfacing for /api/upload
+
+**D93. A real crash was previously producing a bare, contentless 500.**
+The upload endpoint had no top-level exception handling; any genuine
+Python exception (unlike the earlier hang, which was a client-side gap)
+would be caught by FastAPI's default handler and returned as a plain
+500 with no body my own error-surfacing JS could read — exactly what
+"upload failed, HTTP 500" with no further detail describes.
+
+**D94. Wrapped so the real error reaches the person immediately,** no
+log-diving required first. The route's actual logic moved to
+`_upload_impl`; the public route now catches any exception, logs the
+full traceback server-side (for when deeper investigation is still
+needed), and returns the exception's real type and message directly in
+the response body — verified by deliberately injecting a crash into a
+test copy and confirming both the HTTP response and the server log
+carried the real detail, not a generic message.
+
+**D95. This is a diagnostic aid, not the final fix for whatever is
+actually crashing.** Once the real cause surfaces through this, it
+should get its own specific, clean 400 with a helpful message — the
+catch-all's job is to stop failures from being invisible, not to be
+the permanent handler for a known, named problem.
+
+## Fix — The Real Bug: Legacy Images Missing a Tag
+
+**D96. The diagnostic wrapper worked exactly as designed and delivered
+a real, findable bug on the first try.** `KeyError: 'tag'` — images
+saved during earlier testing rounds, before tagging existed, have no
+'tag' field in their stored record at all. New code assumed every
+record had one when checking for tag collisions; the very first
+collision check against an old, tag-less record crashed. Reproduced
+directly before fixing: an index with one legacy tag-less record,
+followed by a fresh save, raised the identical KeyError seen in
+production.
+
+**D97. Fixed with self-healing migration, not a defensive patch at
+each access site.** `_load_index()` now backfills any missing 'tag'
+on every legacy record the first time the index is loaded — derived
+from the filename the same way a fresh save would, disambiguated
+against collisions, and persisted back to disk so it only happens
+once per record. Every downstream function (save, find_by_tag,
+set_tag, list) already routed through `_load_index()`, so all of them
+became correct automatically rather than needing four separate
+`.get()` patches. Verified: after the fix, old records surface with
+real, usable, distinct tags rather than staying broken — proven with
+a test that heals two legacy records sharing the same original
+filename and confirms they end up with different tags, both usable
+through the normal recall API.
