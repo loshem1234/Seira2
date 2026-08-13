@@ -389,6 +389,45 @@ REFERENCE_RECALL_SCHEMA = {
 }
 
 
+CREATE_FILE_SCHEMA = {
+    "name": "seira_create_file",
+    "description": (
+        "Produce a real, downloadable file: markdown, a Word document, a "
+        "PDF, or a code file. Use for substantial content the Architect "
+        "will want to save or share, not for ordinary chat replies. "
+        "Content supports simple structure: '# '/'## '/'### ' headings, "
+        "'- ' bullet lines, blank-line-separated paragraphs — full "
+        "Markdown fidelity in docx/pdf isn't supported, only this subset."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "format": {"type": "string", "enum": ["md", "docx", "pdf", "code"]},
+            "filename": {"type": "string"},
+            "content": {"type": "string"},
+            "language": {"type": "string",
+                        "description": "For format='code': python, javascript, etc."},
+        },
+        "required": ["format", "filename", "content"],
+    },
+}
+
+IMAGE_RECALL_SCHEMA = {
+    "name": "seira_image_recall",
+    "description": (
+        "Look again at a previously shared image by its reference id. "
+        "Past images are not kept in view automatically — call this "
+        "deliberately when you need to actually see one again, rather "
+        "than relying on a memory of what it showed."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"img_id": {"type": "string"}},
+        "required": ["img_id"],
+    },
+}
+
+
 class SeiraPsycheProvider(MemoryProvider):
     """Psyche as the fork's memory: character in the prompt, self-creation
     through tools, Corpus left to Hermes where it belongs."""
@@ -448,7 +487,8 @@ class SeiraPsycheProvider(MemoryProvider):
         return [RECORD_SCHEMA, RECALL_SCHEMA, ENGAGE_SCHEMA,
                 PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA,
                 SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA,
-                DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA]
+                DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA,
+                CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         try:
@@ -588,6 +628,32 @@ class SeiraPsycheProvider(MemoryProvider):
                         args["ref"], args.get("offset", 0), args.get("length", 8000)
                     )
                     return json.dumps({"ok": result["found"], **result})
+                if tool_name == "seira_create_file":
+                    from seira_web.filegen import FileGenError, create_file
+                    try:
+                        rec = create_file(
+                            args["format"], args["filename"], args["content"],
+                            language=args.get("language", ""),
+                        )
+                        return json.dumps({
+                            "ok": True, "out_id": rec["out_id"],
+                            "filename": rec["filename"],
+                            "download_path": f"/api/outputs/{rec['out_id']}",
+                        })
+                    except FileGenError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_image_recall":
+                    # Real image bytes returned as a tool_result image
+                    # block — Anthropic's tool_result content supports
+                    # image blocks natively.
+                    from seira_web.images import get_image_block, image_record
+                    rec = image_record(args["img_id"])
+                    if rec is None:
+                        return json.dumps({"ok": False,
+                                           "error": f"No image {args['img_id']!r}."})
+                    block = get_image_block(args["img_id"])
+                    return json.dumps({"ok": True, "__image_block__": block,
+                                       "filename": rec["filename"]})
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
         except (KeyError, TypeError, ValueError) as e:
