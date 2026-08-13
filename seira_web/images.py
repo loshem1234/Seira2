@@ -58,7 +58,15 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
-def save_image(filename: str, media_type: str, raw: bytes) -> Dict[str, Any]:
+import re
+
+
+def _slugify(text: str) -> str:
+    text = re.sub(r"[^\w\s-]", "", text).strip().lower()
+    return re.sub(r"[\s_-]+", "-", text)[:60] or "image"
+
+
+def save_image(filename: str, media_type: str, raw: bytes, tag: str = "") -> Dict[str, Any]:
     if media_type not in SUPPORTED_MEDIA_TYPES:
         raise ValueError(
             f"Unsupported image type {media_type!r}; supported: "
@@ -74,20 +82,61 @@ def save_image(filename: str, media_type: str, raw: bytes) -> Dict[str, Any]:
     disk_name = f"{img_id}.{ext}"
     _images_dir().mkdir(parents=True, exist_ok=True)
     (_images_dir() / disk_name).write_bytes(raw)
+    default_tag = _slugify(Path(filename).stem) if filename else img_id
     record = {
         "img_id": img_id, "filename": filename[:200], "media_type": media_type,
         "disk_name": disk_name, "size": len(raw), "created": _now(),
+        "tag": _slugify(tag) if tag.strip() else default_tag,
     }
     index = _load_index()
+    # Tags are meant to be memorable and unique-ish; if the default/given
+    # tag collides, disambiguate rather than silently shadowing an older
+    # image under a shared recall name.
+    existing_tags = {r["tag"] for r in index.values()}
+    if record["tag"] in existing_tags:
+        record["tag"] = f"{record['tag']}-{img_id[4:8]}"
     index[img_id] = record
     _save_index(index)
     return record
 
 
-def get_image_block(img_id: str) -> Optional[Dict[str, Any]]:
-    """Return an Anthropic-shaped image content block, or None if missing."""
+def set_tag(img_id: str, tag: str) -> Dict[str, Any]:
     index = _load_index()
     rec = index.get(img_id)
+    if rec is None:
+        raise ValueError(f"No image {img_id!r}.")
+    if not tag.strip():
+        raise ValueError("Tag must not be empty.")
+    new_tag = _slugify(tag)
+    if any(r["tag"] == new_tag and r["img_id"] != img_id for r in index.values()):
+        raise ValueError(f"Tag {new_tag!r} is already used by another image.")
+    rec["tag"] = new_tag
+    index[img_id] = rec
+    _save_index(index)
+    return rec
+
+
+def find_by_tag(tag: str) -> Optional[Dict[str, Any]]:
+    tag = _slugify(tag)
+    for r in _load_index().values():
+        if r["tag"] == tag:
+            return r
+    return None
+
+
+def resolve_ref(ref: str) -> Optional[Dict[str, Any]]:
+    """Resolve an image by img_id or by tag — same ref-or-name pattern
+    already used for document references."""
+    index = _load_index()
+    if ref in index:
+        return index[ref]
+    return find_by_tag(ref)
+
+
+def get_image_block(ref: str) -> Optional[Dict[str, Any]]:
+    """Return an Anthropic-shaped image content block, or None if missing.
+    Accepts an img_id or a tag ('my-portrait-ref')."""
+    rec = resolve_ref(ref)
     if rec is None:
         return None
     raw = (_images_dir() / rec["disk_name"]).read_bytes()
@@ -104,5 +153,5 @@ def list_images() -> List[Dict[str, Any]]:
     return sorted(_load_index().values(), key=lambda r: r["created"], reverse=True)
 
 
-def image_record(img_id: str) -> Optional[Dict[str, Any]]:
-    return _load_index().get(img_id)
+def image_record(ref: str) -> Optional[Dict[str, Any]]:
+    return resolve_ref(ref)

@@ -148,13 +148,20 @@ def model_history(conv_id: str, limit_turns: int = 30) -> List[Dict[str, str]]:
     deliberately when she actually needs to look again."""
     msgs = []
     for r in _live_records(conv_id):
-        if r["kind"] in ("user", "assistant") and r.get("text", "").strip():
-            text = r["text"]
-            if r["kind"] == "user" and r.get("image_ref"):
-                text = f"[Image previously shared: {r.get('image_name', r['image_ref'])} " \
-                       f"(ref: {r['image_ref']}) — recall it with seira_image_recall if " \
-                       f"you need to look again]\n{text}"
-            msgs.append({"role": r["kind"], "content": text})
+        if r["kind"] not in ("user", "assistant"):
+            continue
+        has_text = bool(r.get("text", "").strip())
+        has_image = bool(r.get("image_ref"))
+        if not (has_text or has_image):
+            continue  # a genuinely empty record, not an image-only turn
+        text = r.get("text", "")
+        if r["kind"] == "user" and has_image:
+            marker = (f"[Image previously shared: "
+                     f"{r.get('image_name', r['image_ref'])} "
+                     f"(ref: {r['image_ref']}) — recall it with "
+                     f"seira_image_recall if you need to look again]")
+            text = f"{marker}\n{text}".strip() if text.strip() else marker
+        msgs.append({"role": r["kind"], "content": text})
     return msgs[-limit_turns * 2:]
 
 

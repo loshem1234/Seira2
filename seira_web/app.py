@@ -270,8 +270,32 @@ def create_app(llm_client_factory=None) -> FastAPI:
         name = f.filename or "document"
         content_type = getattr(f, "content_type", "") or ""
         raw = await f.read()
+        name_lower = name.lower()
 
-        if content_type in SUPPORTED_MEDIA_TYPES:
+        heic_ext = (".heic", ".heif")
+        if name_lower.endswith(heic_ext) or content_type in ("image/heic", "image/heif"):
+            return JSONResponse(
+                {"ok": False,
+                 "error": "iPhone HEIC/HEIF photos aren't supported yet — in your "
+                          "phone's share sheet choose 'Options' and pick JPEG, or "
+                          "change Settings \u2192 Camera \u2192 Formats to "
+                          "'Most Compatible' before taking the photo."},
+                status_code=400)
+
+        # Don't trust content_type alone — some mobile browsers/gallery apps
+        # send a generic type (or none at all) for images. Extension is a
+        # reliable fallback signal for the common formats.
+        ext_to_media_type = {".png": "image/png", ".jpg": "image/jpeg",
+                             ".jpeg": "image/jpeg", ".webp": "image/webp",
+                             ".gif": "image/gif"}
+        detected_media_type = content_type if content_type in SUPPORTED_MEDIA_TYPES else None
+        if detected_media_type is None:
+            for ext, mt in ext_to_media_type.items():
+                if name_lower.endswith(ext):
+                    detected_media_type = mt
+                    break
+
+        if detected_media_type is not None:
             if len(raw) > MAX_IMAGE_BYTES:
                 return JSONResponse(
                     {"ok": False,
@@ -279,10 +303,11 @@ def create_app(llm_client_factory=None) -> FastAPI:
                               f"{MAX_IMAGE_BYTES//1024}KB)."},
                     status_code=400)
             with tenant_scope(account["tenant_id"]):
-                saved = save_image(name, content_type, raw)
+                tag = (form.get("tag") or "")
+                saved = save_image(name, detected_media_type, raw, tag=str(tag))
             return JSONResponse({
                 "ok": True, "kind": "image", "name": name,
-                "img_id": saved["img_id"],
+                "img_id": saved["img_id"], "tag": saved["tag"],
             })
 
         if not name.lower().endswith(SUPPORTED_EXTENSIONS):
@@ -311,6 +336,17 @@ def create_app(llm_client_factory=None) -> FastAPI:
             "ref_id": saved["ref_id"], "total_length": saved["length"],
             "truncated_for_chat": truncated,
         })
+
+    @app.get("/api/images/{ref}")
+    def serve_image(ref: str, account: dict = Depends(require_account)):
+        from fastapi.responses import Response
+        from seira_web.images import image_record, _images_dir
+        with tenant_scope(account["tenant_id"]):
+            rec = image_record(ref)
+            if rec is None:
+                raise HTTPException(status_code=404, detail="Not found.")
+            raw = (_images_dir() / rec["disk_name"]).read_bytes()
+        return Response(content=raw, media_type=rec["media_type"])
 
     @app.get("/api/outputs/{out_id}")
     def download_output(out_id: str, account: dict = Depends(require_account)):
