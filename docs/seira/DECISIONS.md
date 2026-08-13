@@ -665,3 +665,40 @@ does for text references — one consistent pattern across both.
 conversation; `seira_image_list` gives her a browsable gallery of
 what's saved, so she doesn't need to already know the exact tag to
 find it.
+
+## Fix — The Real Bug: A Cross-Tenant Race Condition
+
+**D90. Root-caused, reproduced, and fixed — not patched around.** The
+image-upload symptom traced to a genuine concurrency bug, present
+since Phase W1's tenancy work: `_dispatch` set a process-global
+`os.environ["SEIRA_TENANT"]` per request, read back inside
+`SeiraPsycheProvider._scope()`. Environment variables are shared
+across every OS thread in the process; the SSE endpoint spawns a real
+`threading.Thread` per request. Two requests overlapping even briefly
+— an upload followed quickly by a chat send, a double-tap, any
+concurrent access at all — could race on that shared variable, with
+one thread's request silently resolving against a DIFFERENT tenant's
+files. An image "sent" under those conditions would simply not be
+where the model went looking for it, producing a confused, error-
+sounding reply from the model itself — not a crash, which is exactly
+why it looked like a vague, hard-to-pin-down failure rather than a
+clean bug.
+
+**D91. Proven, not asserted.** Before fixing, the exact race was
+reproduced directly: two threads, each setting the shared env var to
+their own tenant id and synchronized on a barrier so both writes
+landed before either read — deterministically, one thread received
+the other's identity in its own system prompt. After the fix, the
+identical adversarial scenario (including a rogue caller still writing
+the env var) was re-run and passed cleanly. Both directions are
+preserved as `test_tenant_race_fix.py`, run automatically going
+forward.
+
+**D92. The fix removes the unsafe mechanism rather than guarding it.**
+`tenant_scope()` (a contextvar) was already correctly thread-isolated
+and was already wrapping every call that needed it — the environment
+variable was redundant even before being dangerous. `_scope()` now
+checks `tenant_scope_active()` first and no-ops if an ambient scope is
+already present; the env var remains only as a fallback for contexts
+with no surrounding scope at all (the standalone Hermes integration
+path), verified by a dedicated test that this fallback still works.
