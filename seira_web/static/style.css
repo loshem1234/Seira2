@@ -149,6 +149,8 @@ a:focus, button:focus, input:focus, textarea:focus {
   border-left: 2px solid var(--gold); }
 .msg .who { font-variant: small-caps; letter-spacing: .16em;
   font-size: .7rem; color: var(--gold); margin-bottom: .25rem; }
+.chatimg { display: block; max-width: 100%; max-height: 320px;
+  border-radius: 6px; margin: .4rem 0; border: 1px solid var(--edge); }
 .msg .actions { display: flex; gap: .7rem; margin-top: .55rem;
   opacity: 0; transition: opacity .18s; }
 .msg:hover .actions, .msg:focus-within .actions { opacity: 1; }
