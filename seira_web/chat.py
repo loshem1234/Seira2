@@ -190,14 +190,22 @@ def run_turn(
     tools = _anthropic_tools(provider, web_search=web_search)
 
     if attachment is not None:
-        convs.append(conv_id, "attachment", name=attachment["name"])
-        user_message = (
-            f"[Attached document: {attachment['name']}]\n"
-            f"{attachment['text']}\n\n{user_message or ''}"
-        ).strip()
+        if attachment.get("kind") == "image":
+            convs.append(conv_id, "attachment", name=attachment["name"])
+            user_message = (user_message or "").strip()
+        else:
+            convs.append(conv_id, "attachment", name=attachment["name"])
+            user_message = (
+                f"[Attached document: {attachment['name']}]\n"
+                f"{attachment['text']}\n\n{user_message or ''}"
+            ).strip()
 
     if user_message is not None:
-        rec = convs.append(conv_id, "user", text=user_message)
+        record_fields: Dict[str, Any] = {"text": user_message}
+        if attachment is not None and attachment.get("kind") == "image":
+            record_fields["image_ref"] = attachment["img_id"]
+            record_fields["image_name"] = attachment["name"]
+        rec = convs.append(conv_id, "user", **record_fields)
         convs.touch(conv_id, maybe_title_from=user_message)
         emit({"event": "user_recorded", "id": rec["id"]})
 
@@ -205,6 +213,19 @@ def run_turn(
         {"role": m["role"], "content": m["content"]}
         for m in convs.model_history(conv_id)
     ]
+    # The current turn's image, if any, replaces the plain-text last user
+    # message with a proper multi-block message carrying the real bytes —
+    # this is the one place a real image ever reaches the model; past
+    # turns replay as a text marker only (see conversations.model_history).
+    if attachment is not None and attachment.get("kind") == "image":
+        from seira_web.images import get_image_block
+        block = get_image_block(attachment["img_id"])
+        if block is not None and messages and messages[-1]["role"] == "user":
+            messages[-1] = {
+                "role": "user",
+                "content": [block, {"type": "text",
+                                    "text": user_message or "What do you see?"}],
+            }
     tool_events: List[Dict[str, Any]] = []
 
     for _ in range(MAX_TOOL_ITERATIONS):
@@ -275,10 +296,38 @@ def run_turn(
                 })
             tool_events.append({"tool": tu["name"], "label": label,
                                 "result": result_str})
+            if tu["name"] == "seira_create_file":
+                try:
+                    parsed_file = json.loads(result_str)
+                    if parsed_file.get("ok"):
+                        emit({"event": "file_created",
+                             "filename": parsed_file.get("filename"),
+                             "download_path": parsed_file.get("download_path")})
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            # Image recall is stored/logged as text (the marker, not raw
+            # bytes — same bounded-context discipline as everywhere else),
+            # but the tool_result actually sent to the model carries the
+            # real image block when present.
+            image_block = None
+            try:
+                parsed = json.loads(result_str)
+                if isinstance(parsed, dict) and parsed.get("__image_block__"):
+                    image_block = parsed.pop("__image_block__")
+                    result_str_for_log = json.dumps(parsed)
+                else:
+                    result_str_for_log = result_str
+            except (json.JSONDecodeError, TypeError):
+                result_str_for_log = result_str
             convs.append(conv_id, "tool", tool=tu["name"], label=label,
-                         input=tu.get("input") or {}, result=result_str)
-            results.append({"type": "tool_result", "tool_use_id": tu["id"],
-                            "content": result_str})
+                         input=tu.get("input") or {}, result=result_str_for_log)
+            if image_block is not None:
+                results.append({"type": "tool_result", "tool_use_id": tu["id"],
+                                "content": [image_block,
+                                           {"type": "text", "text": result_str_for_log}]})
+            else:
+                results.append({"type": "tool_result", "tool_use_id": tu["id"],
+                                "content": result_str})
         messages.append({"role": "user", "content": results})
 
     final = ("(Seira reached her tool-iteration bound this turn; "

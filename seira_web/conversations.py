@@ -139,11 +139,22 @@ def _live_records(conv_id: str) -> List[Dict[str, Any]]:
 
 
 def model_history(conv_id: str, limit_turns: int = 30) -> List[Dict[str, str]]:
-    """The live thread as model messages (user/assistant text only)."""
+    """The live thread as model messages (user/assistant text only).
+
+    Past turns that carried an image (image_ref set) are replayed as a
+    text marker, never the real image bytes again — an image is
+    expensive to repeat into every future turn forever; her
+    seira_image_recall tool exists precisely so she can ask for it back
+    deliberately when she actually needs to look again."""
     msgs = []
     for r in _live_records(conv_id):
         if r["kind"] in ("user", "assistant") and r.get("text", "").strip():
-            msgs.append({"role": r["kind"], "content": r["text"]})
+            text = r["text"]
+            if r["kind"] == "user" and r.get("image_ref"):
+                text = f"[Image previously shared: {r.get('image_name', r['image_ref'])} " \
+                       f"(ref: {r['image_ref']}) — recall it with seira_image_recall if " \
+                       f"you need to look again]\n{text}"
+            msgs.append({"role": r["kind"], "content": text})
     return msgs[-limit_turns * 2:]
 
 

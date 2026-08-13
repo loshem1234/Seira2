@@ -262,18 +262,36 @@ def create_app(llm_client_factory=None) -> FastAPI:
     async def upload(request: Request, account: dict = Depends(require_account)):
         from seira_web.documents import MAX_UPLOAD_BYTES, SUPPORTED_EXTENSIONS, extract_text
         from seira_web import references as refs
+        from seira_web.images import SUPPORTED_MEDIA_TYPES, MAX_IMAGE_BYTES, save_image
         form = await request.form()
         f = form.get("file")
         if f is None:
             return JSONResponse({"ok": False, "error": "No file."}, status_code=400)
         name = f.filename or "document"
+        content_type = getattr(f, "content_type", "") or ""
+        raw = await f.read()
+
+        if content_type in SUPPORTED_MEDIA_TYPES:
+            if len(raw) > MAX_IMAGE_BYTES:
+                return JSONResponse(
+                    {"ok": False,
+                     "error": f"Image too large ({len(raw)//1024}KB; limit "
+                              f"{MAX_IMAGE_BYTES//1024}KB)."},
+                    status_code=400)
+            with tenant_scope(account["tenant_id"]):
+                saved = save_image(name, content_type, raw)
+            return JSONResponse({
+                "ok": True, "kind": "image", "name": name,
+                "img_id": saved["img_id"],
+            })
+
         if not name.lower().endswith(SUPPORTED_EXTENSIONS):
             return JSONResponse(
                 {"ok": False,
-                 "error": f"Seira currently reads {', '.join(SUPPORTED_EXTENSIONS)}. "
-                          "OCR for scanned/image PDFs isn't supported yet."},
+                 "error": f"Seira currently reads {', '.join(SUPPORTED_EXTENSIONS)} "
+                          f"and images ({', '.join(SUPPORTED_MEDIA_TYPES)}). OCR for "
+                          "scanned/image PDFs isn't supported yet."},
                 status_code=400)
-        raw = await f.read()
         if len(raw) > MAX_UPLOAD_BYTES:
             return JSONResponse(
                 {"ok": False,
@@ -285,16 +303,29 @@ def create_app(llm_client_factory=None) -> FastAPI:
             return JSONResponse({"ok": False, "error": result["error"]}, status_code=400)
         with tenant_scope(account["tenant_id"]):
             saved = refs.save_reference(name, result["text"])
-        # Inline slice for immediate use in this turn; the full text is
-        # permanently saved and pageable via seira_reference_recall.
         inline_cap = int(os.environ.get("SEIRA_INLINE_ATTACHMENT_CHARS", "6000"))
         inline_text = result["text"][:inline_cap]
         truncated = len(result["text"]) > inline_cap
         return JSONResponse({
-            "ok": True, "name": name, "text": inline_text,
+            "ok": True, "kind": "document", "name": name, "text": inline_text,
             "ref_id": saved["ref_id"], "total_length": saved["length"],
             "truncated_for_chat": truncated,
         })
+
+    @app.get("/api/outputs/{out_id}")
+    def download_output(out_id: str, account: dict = Depends(require_account)):
+        from fastapi.responses import FileResponse
+        from seira_web.filegen import FileGenError, get_output_path, get_output_record
+        try:
+            with tenant_scope(account["tenant_id"]):
+                rec = get_output_record(out_id)
+                path = get_output_path(out_id)
+        except FileGenError:
+            raise HTTPException(status_code=404, detail="Not found.")
+        media_types = {"md": "text/markdown", "pdf": "application/pdf",
+                       "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+        return FileResponse(path, filename=rec["filename"],
+                            media_type=media_types.get(rec["format"], "text/plain"))
 
     def _dispatch(account, body, emit=None):
         """Shared by the JSON and SSE endpoints. Actions: send | regenerate
