@@ -201,3 +201,47 @@ def test_image_tag_tool_end_to_end(founded):
     out = json.loads(provider.handle_tool_call(
         "seira_image_tag", {"img_id": rec["img_id"], "tag": "my new tag"}))
     assert out["ok"] is True and out["tag"] == "my-new-tag"
+
+
+def test_legacy_records_without_tag_are_backfilled_not_crashed(founded):
+    """Real production bug: images saved before tagging existed have no
+    'tag' key. A fresh save must not crash on them, and they must get a
+    real, usable tag rather than staying broken forever."""
+    from seira_web import images
+
+    images._images_dir().mkdir(parents=True, exist_ok=True)
+    legacy_index = {
+        "img-legacy1": {"img_id": "img-legacy1", "filename": "vacation photo.png",
+                        "media_type": "image/png", "disk_name": "img-legacy1.png",
+                        "size": 10, "created": "2026-01-01T00:00:00"},
+        "img-legacy2": {"img_id": "img-legacy2", "filename": "vacation photo.png",
+                        "media_type": "image/png", "disk_name": "img-legacy2.png",
+                        "size": 10, "created": "2026-01-02T00:00:00"},
+    }
+    images._save_index(legacy_index)
+
+    # The exact crash scenario: a fresh save must succeed, not KeyError.
+    rec = images.save_image("new-shot.png", "image/png", b"bytes")
+    assert rec["tag"] == "new-shot"
+
+    # Legacy records are healed with real, distinct tags — not left broken.
+    healed = images._load_index()
+    t1, t2 = healed["img-legacy1"]["tag"], healed["img-legacy2"]["tag"]
+    assert t1 and t2 and t1 != t2  # same original filename, disambiguated
+
+    # And they're now fully usable through the normal API.
+    assert images.find_by_tag(t1) is not None
+    images.set_tag("img-legacy1", "my portrait ref")
+    assert images.find_by_tag("my-portrait-ref")["img_id"] == "img-legacy1"
+
+
+def test_backfill_persists_so_it_only_happens_once(founded):
+    from seira_web import images
+
+    images._images_dir().mkdir(parents=True, exist_ok=True)
+    images._save_index({"img-x": {"img_id": "img-x", "filename": "a.png",
+                                  "media_type": "image/png", "disk_name": "img-x.png",
+                                  "size": 1, "created": "2026-01-01T00:00:00"}})
+    images._load_index()  # triggers and persists the backfill
+    raw = json.loads(images._index_path().read_text())
+    assert "tag" in raw["img-x"]  # written to disk, not just in-memory
