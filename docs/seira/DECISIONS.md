@@ -1077,3 +1077,19 @@ UI, worse than no effect). The round activity/reasoning orb is
 retired everywhere in favor of a small animated SVG braid (three
 interwoven strands, gentle sway + breathing opacity) — her mark,
 not a generic pulsing dot.
+
+**D134. Replaced the sidebar close-on-click mechanism entirely,
+instead of patching it again.** D133's redundant #msgs binding didn't
+fix the reported regression, which means the capture-phase-through-
+nested-elements theory was wrong (or at least not the whole story).
+Rather than add a third guess on top of two, the mechanism is now the
+standard, most robust version of "click outside to close": a single
+listener on `document`, with containment checked explicitly via
+`e.target.closest('#sidebar')` / `closest('#edgetab')` rather than
+relying on capture/bubble ordering through whatever markup exists
+inside `.chatcol`. This can't be defeated by future additions inside
+the chat column the way listener-placement-dependent approaches can.
+The old `sidebar.addEventListener('click', stopPropagation)` guard is
+removed as unneeded — exclusion is now explicit, not achieved by
+blocking propagation, which also stops it from silently interfering
+with any other document-level listener added later.
