@@ -180,5 +180,17 @@ def list_images() -> List[Dict[str, Any]]:
     return sorted(_load_index().values(), key=lambda r: r["created"], reverse=True)
 
 
+def get_image_bytes(ref: str) -> Optional[Dict[str, Any]]:
+    """Raw bytes + media_type + filename for a resolved ref (id or tag) —
+    what an external API's multipart upload needs, as opposed to
+    get_image_block's Anthropic-shaped base64 content block."""
+    rec = resolve_ref(ref)
+    if rec is None:
+        return None
+    raw = (_images_dir() / rec["disk_name"]).read_bytes()
+    return {"raw": raw, "media_type": rec["media_type"], "filename": rec["filename"],
+           "tag": rec["tag"]}
+
+
 def image_record(ref: str) -> Optional[Dict[str, Any]]:
     return resolve_ref(ref)

@@ -72,6 +72,7 @@ TOOL_LABELS = {
     "seira_instrument_execute": "Recording an Instrument's work",
     "seira_paradigm_revise": "Revising a paradigm",
     "seira_skill_authorize": "Authorizing a skill",
+    "seira_generate_image": "Generating an image",
 }
 
 
@@ -303,6 +304,16 @@ def run_turn(
                         emit({"event": "file_created",
                              "filename": parsed_file.get("filename"),
                              "download_path": parsed_file.get("download_path")})
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if tu["name"] == "seira_generate_image":
+                try:
+                    parsed_img = json.loads(result_str)
+                    if parsed_img.get("ok") and parsed_img.get("__image_created__"):
+                        emit({"event": "image_created",
+                             "img_id": parsed_img.get("img_id"),
+                             "tag": parsed_img.get("tag"),
+                             "used_references": parsed_img.get("used_references", [])})
                 except (json.JSONDecodeError, TypeError):
                     pass
             # Image recall is stored/logged as text (the marker, not raw
