@@ -123,6 +123,26 @@ function esc(s) { const d = document.createElement('div');
   d.textContent = s; return d.innerHTML; }
 function scrollEnd() { msgs.scrollTop = msgs.scrollHeight; }
 
+// Markdown-lite: fenced code blocks become copy boxes; inline `code`
+// gets a subtle chip; everything is escaped first, always.
+function renderBody(text) {
+  const parts = String(text ?? '').split(/```(\w*)\n?/);
+  // split yields: [text, lang, code, text, lang, code, ...]
+  let html = '';
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 3 === 0) {
+      html += esc(parts[i]).replace(/`([^`\n]+)`/g, '<code class="inlinecode">$1</code>');
+    } else if (i % 3 === 1) {
+      const lang = parts[i]; const code = parts[i + 1] ?? ''; i += 1;
+      html += `<div class="codeblock"><div class="codebar">` +
+        `<span class="codelang">${esc(lang || 'code')}</span>` +
+        `<button class="copycode" type="button">copy</button></div>` +
+        `<pre><code>${esc(code.replace(/\n$/, ''))}</code></pre></div>`;
+    }
+  }
+  return html;
+}
+
 function addUser(text, imgSrc) {
   const imgHtml = imgSrc ? `<img class="chatimg" src="${esc(imgSrc)}" alt="shared image">` : '';
   const node = el(`<div class="msg user"><div class="who">You</div>${imgHtml}
@@ -131,20 +151,131 @@ function addUser(text, imgSrc) {
     <button class="iconbtn act-copy">copy</button></div></div>`);
   msgs.appendChild(node); lastUserEl = node; scrollEnd();
 }
-function addAssistant(text, id) {
-  msgs.appendChild(el(`<div class="msg assistant" data-id="${id||''}">
-    <div class="who">Seira</div><span class="body">${esc(text)}</span>
+function assistantHtml(text, id) {
+  return `<div class="msg assistant" data-id="${id||''}">
+    <div class="who">Seira</div><span class="body">${renderBody(text)}</span>
     <div class="actions"><button class="iconbtn act-speak">read aloud</button>
     <button class="iconbtn act-copy">copy</button>
-    <button class="iconbtn act-regen">regenerate</button></div></div>`));
+    <button class="iconbtn act-regen">regenerate</button></div></div>`;
+}
+function addAssistant(text, id) {
+  msgs.appendChild(el(assistantHtml(text, id)));
   scrollEnd();
 }
 function addChip(label) {
   msgs.appendChild(el(`<div class="toolchip">${esc(label)}</div>`)); scrollEnd();
 }
+
+// ── The live activity feed: what she is actually doing, as it happens ──
+// Terminal commands render as a terminal line, delegation as a spawned
+// subagent card, everything else as a labeled tool card. Each card
+// collects its result into an expandable detail when it lands.
+const FRIENDLY = {
+  'web_search': 'Searching the web', 'web_extract': 'Reading a page',
+  'read_file': 'Reading a file', 'write_file': 'Writing a file',
+  'patch': 'Editing a file', 'search_files': 'Searching files',
+  'skills_list': 'Checking her skills', 'skill_view': 'Reading a skill',
+  'skill_manage': 'Updating a skill', 'todo': 'Updating her plan',
+  'vision_analyze': 'Looking at an image', 'image_generate': 'Generating an image',
+};
+const SEIRA_LABELS = {
+  'seira_psyche_record': 'Writing her Psyche',
+  'seira_psyche_recall': 'Consulting her character',
+  'seira_psyche_engage_affinity': 'Weighing an affinity',
+  'seira_propose_establishment': 'Opening a proposal on herself',
+  'seira_falsification_attempt': 'Attempting falsification',
+  'seira_proposal_conclude': 'Concluding a proposal',
+  'seira_instrument_spawn': 'Spawning an Instrument',
+  'seira_instrument_execute': "Recording an Instrument's work",
+  'seira_paradigm_revise': 'Revising a paradigm',
+  'seira_skill_authorize': 'Authorizing a skill',
+  'seira_generate_image': 'Generating an image',
+};
+const openToolCards = {};  // tool_call_id -> card element
+function addToolCard(ev) {
+  const name = ev.tool || ''; const input = ev.input || {};
+  let node;
+  if (name === 'terminal' || name === 'process') {
+    const cmd = input.command || input.cmd || JSON.stringify(input);
+    node = el(`<div class="toolcard term">
+      <div class="toolhead"><span class="toolicon">❯</span>Terminal</div>
+      <pre class="termline">$ ${esc(String(cmd))}</pre></div>`);
+  } else if (name === 'delegate_task') {
+    const goal = input.goal || (Array.isArray(input.tasks)
+      ? input.tasks.map(t => t.goal || '').join(' · ') : '');
+    node = el(`<div class="toolcard delegate">
+      <div class="toolhead"><span class="toolicon">✧</span>Delegating a subagent</div>
+      <div class="toolsub">${esc(String(goal).slice(0, 300))}</div></div>`);
+  } else {
+    const label = SEIRA_LABELS[name] || FRIENDLY[name] || ev.label || name;
+    const summary = summarizeInput(input);
+    node = el(`<div class="toolcard">
+      <div class="toolhead"><span class="toolicon">✦</span>${esc(label)}</div>
+      ${summary ? `<div class="toolsub">${esc(summary)}</div>` : ''}</div>`);
+  }
+  msgs.appendChild(node);
+  if (ev.tool_call_id) openToolCards[ev.tool_call_id] = node;
+  scrollEnd(); return node;
+}
+function summarizeInput(input) {
+  if (!input || typeof input !== 'object') return '';
+  const keys = ['query', 'url', 'urls', 'path', 'file_path', 'name', 'category', 'prompt'];
+  for (const k of keys) if (input[k]) return `${k}: ${String(input[k]).slice(0, 160)}`;
+  return '';
+}
+function attachToolResult(ev) {
+  const card = (ev.tool_call_id && openToolCards[ev.tool_call_id]) || null;
+  if (!card) return;
+  delete openToolCards[ev.tool_call_id];
+  const preview = String(ev.result ?? '').slice(0, 4000);
+  if (!preview.trim()) { card.classList.add('done'); return; }
+  card.appendChild(el(`<details class="toolresult"><summary>result</summary>
+    <pre>${esc(preview)}</pre></details>`));
+  card.classList.add('done'); scrollEnd();
+}
+
+// ── Live reasoning: her thinking, streamed as it happens ──
+let reasoningEl = null;
+function appendReasoning(text) {
+  if (!reasoningEl) {
+    reasoningEl = el(`<details class="reasoning" open>
+      <summary><span class="orb"></span>Her reasoning</summary>
+      <div class="reasonbody"></div></details>`);
+    msgs.appendChild(reasoningEl);
+  }
+  reasoningEl.querySelector('.reasonbody').textContent += text;
+  scrollEnd();
+}
+function settleReasoning() {
+  if (reasoningEl) { reasoningEl.removeAttribute('open');
+    reasoningEl.querySelector('.orb')?.classList.add('still'); }
+  reasoningEl = null;
+}
+
+// ── Streaming reply: text arrives as deltas, finalizes on 'reply' ──
+let streamEl = null; let streamText = '';
+function appendDelta(text) {
+  if (!streamEl) {
+    streamEl = el(`<div class="msg assistant streaming">
+      <div class="who">Seira</div><span class="body"></span></div>`);
+    msgs.appendChild(streamEl); streamText = '';
+  }
+  streamText += text;
+  streamEl.querySelector('.body').textContent = streamText;
+  scrollEnd();
+}
+function finalizeReply(text, id) {
+  settleReasoning();
+  if (streamEl) { streamEl.remove(); streamEl = null; streamText = ''; }
+  addAssistant(text, id);
+}
+
 function addDownloadCard(filename, path) {
-  msgs.appendChild(el(`<a class="toolchip downloadcard" href="${esc(path)}"
-    download>&#8681; ${esc(filename)}</a>`));
+  const isOpenable = /\.(pdf|png|jpg|jpeg|webp|gif|html?|md|txt)$/i.test(filename || '');
+  msgs.appendChild(el(`<div class="toolchip downloadcard filecard">
+    <a class="filelink" href="${esc(path)}" download>&#8681; ${esc(filename)}</a>
+    ${isOpenable ? `<a class="openbtn" href="${esc(path)}" target="_blank" rel="noopener">open</a>` : ''}
+  </div>`));
   scrollEnd();
 }
 function addGeneratedImage(imgId, tag, usedRefs) {
@@ -187,8 +318,12 @@ async function stream(body) {
         if (ev.event === 'user_recorded') {
           if (lastUserEl) { lastUserEl.dataset.id = ev.id; lastUserEl = null; }
         } else if (ev.event === 'phase') setActivity(ev.label);
-        else if (ev.event === 'tool') { clearActivity(); addChip(ev.label);
+        else if (ev.event === 'tool') { clearActivity(); addToolCard(ev);
           setActivity('Thinking'); }
+        else if (ev.event === 'tool_result') { attachToolResult(ev); }
+        else if (ev.event === 'reasoning') { clearActivity(); appendReasoning(ev.text || ''); }
+        else if (ev.event === 'delta') { clearActivity(); appendDelta(ev.text || ''); }
+        else if (ev.event === 'delta_end') { /* reply event finalizes */ }
         else if (ev.event === 'file_created') {
           addDownloadCard(ev.filename || 'file', ev.download_path);
         }
@@ -196,8 +331,8 @@ async function stream(body) {
           addGeneratedImage(ev.img_id, ev.tag, ev.used_references);
         }
         else if (ev.event === 'reply') { clearActivity();
-          addAssistant(ev.text, ev.assistant_id); }
-        else if (ev.event === 'error') { clearActivity();
+          finalizeReply(ev.text, ev.assistant_id); }
+        else if (ev.event === 'error') { clearActivity(); settleReasoning();
           addChip(ev.halted ? 'Seira is halted (Art. 32.3)' : ('Failed: ' + ev.error)); }
       }
     }
@@ -232,9 +367,20 @@ function sendNow() {
 }
 
 msgs.addEventListener('click', async (e) => {
+  const codeBtn = e.target.closest('.copycode');
+  if (codeBtn) {
+    const code = codeBtn.closest('.codeblock')?.querySelector('pre code')?.textContent || '';
+    await navigator.clipboard.writeText(code);
+    codeBtn.textContent = 'copied'; setTimeout(()=>codeBtn.textContent='copy', 1200);
+    return;
+  }
   const btn = e.target.closest('.iconbtn'); if (!btn) return;
   const msg = btn.closest('.msg');
-  const text = msg?.querySelector('.body')?.textContent || '';
+  let text = '';
+  { const bodyEl = msg?.querySelector('.body');
+    if (bodyEl) { const clone = bodyEl.cloneNode(true);
+      clone.querySelectorAll('.codebar').forEach(n => n.remove());
+      text = clone.textContent || ''; } }
   if (btn.classList.contains('act-copy')) {
     await navigator.clipboard.writeText(text);
     btn.textContent = 'copied'; setTimeout(()=>btn.textContent='copy', 1200);
@@ -429,6 +575,12 @@ micbtn.addEventListener('click', () => {
   };
   rec.onend = () => { micbtn.classList.remove('listening'); rec = null; };
   rec.start();
+});
+
+// Loaded history renders server-side as plain text; upgrade assistant
+// bodies to the same code-box rendering live replies get.
+document.querySelectorAll('.msg.assistant .body').forEach(b => {
+  b.innerHTML = renderBody(b.textContent);
 });
 
 requestAnimationFrame(scrollEnd);
