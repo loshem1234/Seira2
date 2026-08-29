@@ -845,3 +845,35 @@ confirm (tap once to arm, tap again within 3 seconds to confirm), not
 already caused a real, confirmed hang on mobile once in this project
 (the image-tagging dialog); the pattern is now avoided by policy, not
 just in the one place that broke.
+
+## R2 Off-Box Backup Shipping — Closing the Gap Named in D103
+
+**D109. The disaster-recovery gap flagged in D103 is now closed,
+optionally.** Every backup created locally is now also shipped to a
+Cloudflare R2 bucket when configured — R2 is S3-compatible, so this
+uses boto3 rather than hand-rolling AWS request signing, which would
+be real risk for no real benefit. Local backups remain the fast-
+rollback tier (protect against drift/defect); R2 is now the actual
+"still there if the volume is gone" tier.
+
+**D110. Shipping is additive and never blocks local success.** A
+network failure, a bad credential, R2 being down — none of it can make
+`create_backup()` look like it failed; the local archive existing is
+the load-bearing guarantee, R2 is best-effort on top of it. Tested
+directly: a client that always raises still leaves a real, valid local
+archive on disk, with the failure recorded in the result rather than
+propagated as an exception.
+
+**D111. Remote retention is enforced in code, not left as a manual
+Cloudflare dashboard step.** Config-as-code, matching this whole
+project's discipline — a lifecycle rule someone forgot to click isn't
+something the test suite can verify, so retention is pruned by this
+code the same way local retention is, using the same filename-encoded-
+timestamp sort (D105) so it doesn't depend on any timestamp metadata
+R2 might round or omit.
+
+**D112. R2 is fully optional, checked by presence of four env vars.**
+Nothing about local backups (D103–108) changes if R2 is never
+configured; `r2_configured()` gates the entire feature honestly, and
+`/healthz` now reports whether it's on, so this is verifiable without
+SSH the same way everything else in this system is.

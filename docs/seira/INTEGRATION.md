@@ -274,7 +274,25 @@ Restore (deliberate, hand-run, never a UI button):
 Extracts into a clearly-named sibling directory rather than overwriting
 live data; review the restored files and swap them in by hand.
 
-**Off-box shipping (R2) is not built yet.** Today's backups protect
-against drift/defect via rollback, not against losing the volume
-itself. Adding an R2 push after each `create_backup()` call is the
-natural next step whenever that's wanted.
+## 18. Shipping backups to Cloudflare R2
+
+Four Railway environment variables turn this on; leaving any one unset
+keeps backups local-only (nothing else changes):
+
+    SEIRA_R2_ACCOUNT_ID=<your Cloudflare account id>
+    SEIRA_R2_ACCESS_KEY_ID=<R2 API token access key>
+    SEIRA_R2_SECRET_ACCESS_KEY=<R2 API token secret>
+    SEIRA_R2_BUCKET=<bucket name>
+
+Optional: `SEIRA_R2_PREFIX` (default `seira-backups`) — the key prefix
+inside the bucket, e.g. `seira-backups/daily/seira-backup-daily-....tar.gz`.
+
+Create the R2 API token in the Cloudflare dashboard under R2 →
+Manage API Tokens, scoped to the one bucket if you want least-
+privilege. Retention in the bucket matches local (7 daily, 12 monthly)
+and is enforced by the same code that prunes local copies — no
+dashboard lifecycle rule needed.
+
+Check status anytime at `GET /healthz` — `backups.r2_configured` is
+`true`/`false`; a successful or failed ship for the most recent backup
+appears in the Deploy Logs at the time it ran.
