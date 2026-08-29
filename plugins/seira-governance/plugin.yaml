@@ -1,0 +1,5 @@
+name: seira_governance
+version: 1.0.0
+description: "Seira's delegation gate (Art. 26, 35): tool_execution middleware refusing delegate_task spawns without a valid [seira:inst-XXXXX/task-type] tag, with an unknown or retired Instrument, or on an escalated-and-blocked task type. Governance layer, not a security boundary — Hermes middleware is fail-open by design."
+author: Loshem (Archivum Universale & Scriptorium)
+kind: standalone
