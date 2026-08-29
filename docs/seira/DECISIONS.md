@@ -1060,3 +1060,20 @@ simulated thinking, no fake deltas.
 fenced code blocks (copy box) and inline backticks (chip). A full
 markdown renderer invites XSS surface and visual drift; two forms
 cover what her replies actually contain.
+
+**D133. UI polish round: deeper violet, sidebar fail-safe, embers, her
+braid.** Palette darkened (--void #120820→#0A0416, --deep, --surface,
+--edge all deepened; body gradient highlight matched). The sidebar
+close-on-chat-click gained a redundant explicit binding on #msgs
+alongside the existing capture-phase #chatcol listener — static
+analysis found nothing that should have broken the original (no new
+stopPropagation calls, no elements that block bubbling), so this is a
+robustness fix rather than a diagnosed-and-patched bug; if it
+recurs, browser console output is needed to go further. A decorative,
+pointer-events:none ember field rises behind the message thread,
+respecting prefers-reduced-motion (hidden outright, not frozen
+mid-animation — a static field of orange dots would read as a stuck
+UI, worse than no effect). The round activity/reasoning orb is
+retired everywhere in favor of a small animated SVG braid (three
+interwoven strands, gentle sway + breathing opacity) — her mark,
+not a generic pulsing dot.
