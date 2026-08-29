@@ -324,3 +324,138 @@ def test_archive_hides_from_sidebar_but_keeps_transcript(tmp_path, monkeypatch):
 def test_archive_nonexistent_conversation(client):
     r = client.post("/api/conversations/c-doesnotexist/archive")
     assert r.status_code == 404
+
+
+def test_signups_open_by_default(client):
+    r = client.post("/signup", data={"email": "new@example.com",
+                                     "password": "long-enough-password"})
+    assert r.status_code == 303  # succeeds, redirects to onboarding
+
+
+def test_signups_can_be_closed(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform4"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants4"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+    monkeypatch.setenv("SEIRA_SIGNUPS_ENABLED", "0")
+
+    app = appmod.create_app(llm_client_factory=lambda model=None: None)
+    c = TestClient(app, follow_redirects=False)
+
+    r_get = c.get("/signup")
+    assert r_get.status_code == 403
+    assert "closed" in r_get.text
+
+    r_post = c.post("/signup", data={"email": "blocked@example.com",
+                                     "password": "long-enough-password"})
+    assert r_post.status_code == 403
+    from seira_web import accounts as acct
+    assert acct.verify_login("blocked@example.com", "long-enough-password") is None
+
+
+def test_existing_login_unaffected_when_signups_closed(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform5"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants5"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+
+    # Signups open, create the real account first...
+    app = appmod.create_app(llm_client_factory=lambda model=None: None)
+    c = TestClient(app, follow_redirects=False)
+    c.post("/signup", data={"email": "existing@example.com",
+                            "password": "long-enough-password"})
+    c.post("/logout")
+
+    # ...then close signups and confirm login still works normally.
+    monkeypatch.setenv("SEIRA_SIGNUPS_ENABLED", "0")
+    r = c.post("/login", data={"email": "existing@example.com",
+                               "password": "long-enough-password"})
+    assert r.status_code == 303 and r.headers["location"] == "/"
+
+
+def test_login_page_hides_signup_link_when_closed(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform6"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants6"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+    monkeypatch.setenv("SEIRA_SIGNUPS_ENABLED", "0")
+
+    app = appmod.create_app(llm_client_factory=lambda model=None: None)
+    c = TestClient(app, follow_redirects=False)
+    page = c.get("/login").text
+    assert 'href="/signup"' not in page
+
+
+def test_healthz_reports_signups_status(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform7"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants7"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+    monkeypatch.setenv("SEIRA_SIGNUPS_ENABLED", "0")
+
+    app = appmod.create_app(llm_client_factory=lambda model=None: None)
+    c = TestClient(app)
+    assert c.get("/healthz").json()["signups_enabled"] is False
+
+
+def test_admin_route_404s_when_no_token_configured(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform8"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants8"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+    monkeypatch.delenv("SEIRA_ADMIN_TOKEN", raising=False)
+    app = appmod.create_app(llm_client_factory=lambda model=None: None)
+    c = TestClient(app)
+    r = c.get("/api/admin/tenants")
+    assert r.status_code == 404  # not 401 — doesn't even hint it exists
+
+
+def test_admin_route_requires_correct_token(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform9"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants9"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+    monkeypatch.setenv("SEIRA_ADMIN_TOKEN", "the-real-secret")
+    app = appmod.create_app(llm_client_factory=lambda model=None: None)
+    c = TestClient(app)
+
+    r_none = c.get("/api/admin/tenants")
+    assert r_none.status_code == 401
+    r_wrong = c.get("/api/admin/tenants", headers={"x-admin-token": "guess"})
+    assert r_wrong.status_code == 401
+
+
+def test_admin_route_lists_every_account_with_real_founding_status(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform10"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants10"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+    monkeypatch.setenv("SEIRA_ADMIN_TOKEN", "the-real-secret")
+    app = appmod.create_app(llm_client_factory=lambda model=None: None)
+    c = TestClient(app, follow_redirects=False)
+
+    c.post("/signup", data={"email": "founded@example.com", "password": "long-enough-password"})
+    c.post("/onboard", data={"telos": "t", "relation": "r", "self_model": "s"})
+    c2 = TestClient(app, follow_redirects=False)
+    c2.post("/signup", data={"email": "unfounded@example.com", "password": "long-enough-password"})
+    # deliberately does NOT complete onboarding — a real "stray" case
+
+    r = c.get("/api/admin/tenants", headers={"x-admin-token": "the-real-secret"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_accounts"] == 2
+    by_email = {a["email"]: a for a in body["accounts"]}
+    assert by_email["founded@example.com"]["seira_founded"] is True
+    assert by_email["founded@example.com"]["halted"] is False
+    assert by_email["unfounded@example.com"]["seira_founded"] is False
