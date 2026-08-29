@@ -8,8 +8,21 @@
   <aside class="sidebar" id="sidebar">
     <button class="gold newchat" id="newchat">New conversation</button>
     {% for c in conversations %}
-    <a class="convo {{ 'active' if c.conv_id == active_id else '' }}"
-       href="/?c={{ c.conv_id }}">{{ c.title }}</a>
+    <div class="convo-row {{ 'active' if c.conv_id == active_id else '' }}"
+         data-conv-id="{{ c.conv_id }}">
+      <a class="convo" href="/?c={{ c.conv_id }}">{{ c.title }}</a>
+      <span class="convo-actions">
+        <button class="convoicon act-rename" title="Rename" aria-label="Rename conversation">
+          <svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor"
+            d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
+        <button class="convoicon act-archive" title="Delete (archives — her transcript is kept)"
+                aria-label="Delete conversation">
+          <svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor"
+            d="M6 7h12v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7zm3-3h6l1 2h4v2H4V6h4l1-2z"/></svg>
+        </button>
+      </span>
+    </div>
     {% endfor %}
   </aside>
   <div class="chatcol" id="chatcol">
@@ -248,6 +261,59 @@ document.getElementById('newchat').addEventListener('click', async () => {
   const r = await fetch('/api/conversations', {method:'POST'});
   const d = await r.json();
   if (d.ok) location.href = '/?c=' + d.conv_id;
+});
+
+// Rename (inline, no blocking dialog) and archive (two-tap confirm,
+// no blocking dialog) — both native prompt()/confirm() are avoided on
+// purpose: they've caused real mobile hangs elsewhere in this app.
+sidebar.addEventListener('click', async (e) => {
+  const row = e.target.closest('.convo-row');
+  if (!row) return;
+  const convId = row.dataset.convId;
+
+  const renameBtn = e.target.closest('.act-rename');
+  if (renameBtn) {
+    e.preventDefault();
+    const link = row.querySelector('.convo');
+    const current = link.textContent;
+    const input = document.createElement('input');
+    input.type = 'text'; input.value = current; input.className = 'convo-rename-input';
+    link.replaceWith(input);
+    input.focus(); input.select();
+    const commit = async () => {
+      const newTitle = input.value.trim() || current;
+      const r = await fetch(`/api/conversations/${convId}/rename`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: newTitle}),
+      });
+      const d = await r.json();
+      const newLink = document.createElement('a');
+      newLink.className = 'convo'; newLink.href = '/?c=' + convId;
+      newLink.textContent = d.ok ? d.title : current;
+      input.replaceWith(newLink);
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') input.blur();
+      if (ev.key === 'Escape') { input.value = current; input.blur(); }
+    });
+    input.addEventListener('blur', commit, {once: true});
+    return;
+  }
+
+  const archiveBtn = e.target.closest('.act-archive');
+  if (archiveBtn) {
+    e.preventDefault();
+    if (!archiveBtn.classList.contains('confirming')) {
+      archiveBtn.classList.add('confirming');
+      archiveBtn.title = 'Tap again to confirm';
+      setTimeout(() => archiveBtn.classList.remove('confirming'), 3000);
+      return;
+    }
+    await fetch(`/api/conversations/${convId}/archive`, {method: 'POST'});
+    const wasActive = row.classList.contains('active');
+    row.remove();
+    if (wasActive) location.href = '/';
+  }
 });
 
 // Sidebar: tiny edge tab toggles it; clicking the live chat auto-collapses.
