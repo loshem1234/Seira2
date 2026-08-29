@@ -93,26 +93,13 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     # ---------------- auth routes ----------------
 
-    def _signups_enabled() -> bool:
-        return os.environ.get("SEIRA_SIGNUPS_ENABLED", "1") != "0"
-
     @app.get("/signup", response_class=HTMLResponse)
     def signup_page(request: Request):
-        if not _signups_enabled():
-            return templates.TemplateResponse(
-                request, "auth.html",
-                {"mode": "signup", "error": "New accounts are closed on this instance."},
-                status_code=403)
         return templates.TemplateResponse(request, "auth.html",
                                           {"mode": "signup", "error": None})
 
     @app.post("/signup")
     def signup(request: Request, email: str = Form(...), password: str = Form(...)):
-        if not _signups_enabled():
-            return templates.TemplateResponse(
-                request, "auth.html",
-                {"mode": "signup", "error": "New accounts are closed on this instance."},
-                status_code=403)
         try:
             account = acct.create_account(email, password)
         except acct.AccountError as e:
@@ -125,8 +112,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):
         return templates.TemplateResponse(request, "auth.html",
-                                          {"mode": "login", "error": None,
-                                           "signups_enabled": _signups_enabled()})
+                                          {"mode": "login", "error": None})
 
     @app.post("/login")
     def login(request: Request, email: str = Form(...), password: str = Form(...)):
@@ -542,31 +528,6 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
         return StreamingResponse(sse(), media_type="text/event-stream")
 
-    @app.get("/api/admin/tenants")
-    def admin_list_tenants(request: Request):
-        """Gated by a separate admin secret — never the Architect's own
-        login, never a normal session. Absent SEIRA_ADMIN_TOKEN, this
-        route is permanently disabled (401), not merely undocumented,
-        so it can't be reached by accident on a deployment that never
-        set one up."""
-        admin_token = os.environ.get("SEIRA_ADMIN_TOKEN", "")
-        if not admin_token:
-            raise HTTPException(status_code=404, detail="Not found.")
-        provided = request.headers.get("x-admin-token", "")
-        import hmac
-        if not hmac.compare_digest(provided, admin_token):
-            raise HTTPException(status_code=401, detail="Unauthorized.")
-
-        from seira_core.genesis import genesis_performed
-        from seira_core.tripwire import is_halted
-        out = []
-        for a in acct.list_accounts():
-            with tenant_scope(a["tenant_id"]):
-                founded = genesis_performed()
-                halted = is_halted() if founded else None
-            out.append({**a, "seira_founded": founded, "halted": halted})
-        return JSONResponse({"total_accounts": len(out), "accounts": out})
-
     @app.get("/healthz")
     def healthz():
         """Unauthenticated: last-known tripwire sweep across all tenants,
@@ -582,7 +543,6 @@ def create_app(llm_client_factory=None) -> FastAPI:
         monthly = list_backups("monthly")
         return JSONResponse(
             {"tenants": len(results), "halted": halted,
-             "signups_enabled": _signups_enabled(),
              "backups": {
                  "daily": {"count": len(daily),
                           "latest": daily[0]["mtime"] if daily else None},
