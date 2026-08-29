@@ -63,9 +63,39 @@ def _save_index(index: Dict[str, Dict[str, Any]]) -> None:
     os.replace(tmp, _index_path())
 
 
-def list_conversations() -> List[Dict[str, Any]]:
+def rename_conversation(conv_id: str, new_title: str) -> Dict[str, Any]:
+    if not new_title.strip():
+        raise ValueError("Title must not be empty.")
     index = _load_index()
-    return sorted(index.values(), key=lambda c: c["updated"], reverse=True)
+    if conv_id not in index:
+        raise ValueError(f"No conversation {conv_id!r}.")
+    index[conv_id]["title"] = new_title.strip()[:80]
+    index[conv_id]["updated"] = _now()
+    _save_index(index)
+    return index[conv_id]
+
+
+def archive_conversation(conv_id: str) -> Dict[str, Any]:
+    """Removes a conversation from the visible list — never deletes its
+    transcript. Same principle as message edit/regenerate (Art. 23):
+    her Corpus doesn't lose real history because a UI trash icon was
+    clicked; it stops being shown, which is what 'delete' actually
+    means to the person using the sidebar."""
+    index = _load_index()
+    if conv_id not in index:
+        raise ValueError(f"No conversation {conv_id!r}.")
+    index[conv_id]["archived"] = True
+    index[conv_id]["archived_at"] = _now()
+    _save_index(index)
+    return index[conv_id]
+
+
+def list_conversations(include_archived: bool = False) -> List[Dict[str, Any]]:
+    index = _load_index()
+    convs = index.values()
+    if not include_archived:
+        convs = [c for c in convs if not c.get("archived")]
+    return sorted(convs, key=lambda c: c["updated"], reverse=True)
 
 
 def create_conversation(title: str = "New conversation") -> Dict[str, Any]:

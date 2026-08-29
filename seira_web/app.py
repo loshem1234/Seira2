@@ -260,6 +260,32 @@ def create_app(llm_client_factory=None) -> FastAPI:
             c = convs.create_conversation()
         return JSONResponse({"ok": True, "conv_id": c["conv_id"]})
 
+    @app.post("/api/conversations/{conv_id}/rename")
+    async def rename_conversation_route(conv_id: str, request: Request,
+                                        account: dict = Depends(require_account)):
+        from seira_web import conversations as convs
+        body = await request.json()
+        title = (body.get("title") or "").strip()
+        if not title:
+            return JSONResponse({"ok": False, "error": "Title must not be empty."},
+                                status_code=400)
+        try:
+            with tenant_scope(account["tenant_id"]):
+                rec = convs.rename_conversation(conv_id, title)
+        except ValueError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=404)
+        return JSONResponse({"ok": True, "title": rec["title"]})
+
+    @app.post("/api/conversations/{conv_id}/archive")
+    def archive_conversation_route(conv_id: str, account: dict = Depends(require_account)):
+        from seira_web import conversations as convs
+        try:
+            with tenant_scope(account["tenant_id"]):
+                convs.archive_conversation(conv_id)
+        except ValueError as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=404)
+        return JSONResponse({"ok": True})
+
     @app.post("/api/upload")
     async def upload(request: Request, account: dict = Depends(require_account)):
         """Wrapped so ANY unhandled exception returns its real type and
@@ -485,13 +511,24 @@ def create_app(llm_client_factory=None) -> FastAPI:
     @app.get("/healthz")
     def healthz():
         """Unauthenticated: last-known tripwire sweep across all tenants,
-        for Railway's own health checks and quick eyeballing without SSH."""
+        plus backup status, for Railway's own health checks and quick
+        eyeballing without SSH."""
         from seira_core.tenancy import tripwire_all
+        from seira_web.backup import list_backups
         results = tripwire_all()
         halted = [t for t, r in results.items() if r.get("halted")]
         status_code = 503 if halted else 200
+        daily = list_backups("daily")
+        monthly = list_backups("monthly")
         return JSONResponse(
-            {"tenants": len(results), "halted": halted}, status_code=status_code)
+            {"tenants": len(results), "halted": halted,
+             "backups": {
+                 "daily": {"count": len(daily),
+                          "latest": daily[0]["mtime"] if daily else None},
+                 "monthly": {"count": len(monthly),
+                            "latest": monthly[0]["mtime"] if monthly else None},
+             }},
+            status_code=status_code)
 
     @app.get("/diary", response_class=HTMLResponse)
     def diary_page(request: Request, account: dict = Depends(require_account)):
