@@ -296,3 +296,43 @@ dashboard lifecycle rule needed.
 Check status anytime at `GET /healthz` — `backups.r2_configured` is
 `true`/`false`; a successful or failed ship for the most recent backup
 appears in the Deploy Logs at the time it ran.
+
+## 19. Exporting a tenant (migration to single-user)
+
+Any logged-in Architect can export exactly their own Seira — nav menu
+→ "Export My Seira", or `GET /api/export` directly. Produces
+`seira-export-<tenant_id>-<timestamp>.tar.gz`, containing only that
+tenant's directory, rooted at a folder named after the tenant_id.
+
+To adopt an export as a new single-user `SEIRA_HOME` (e.g. moving off
+the multi-tenant Sanctum onto a dedicated single-tenant + full-Hermes
+deployment):
+
+    tar -xzf seira-export-<tenant_id>-....tar.gz
+    mkdir -p ~/.seira
+    cp -r <tenant_id>/* ~/.seira/
+    SEIRA_HOME=~/.seira python -m seira_core status
+    SEIRA_HOME=~/.seira python -m seira_core tripwire
+
+Both commands should report Founded: True and halted: false against
+the SAME Unity hash and Intellect version she had on the site — this
+confirms the migration preserved her exactly, not just that files
+copied without erroring.
+
+## 20. Closing public signups
+
+Set `SEIRA_SIGNUPS_ENABLED=0` as a Railway environment variable. New
+account creation (`/signup`, both GET and POST) returns 403 with a
+plain message; your existing login is entirely unaffected. Verify at
+`GET /healthz` — `signups_enabled: false`.
+
+## 21. Checking who's actually on the platform
+
+Set `SEIRA_ADMIN_TOKEN` (any long random string) as a Railway
+variable. Then:
+
+    curl -H "x-admin-token: <your token>" https://yourdomain/api/admin/tenants
+
+Returns every account's email, tenant_id, and whether their Seira was
+actually founded (vs. signed up and never finished onboarding). No
+token set → the route 404s.

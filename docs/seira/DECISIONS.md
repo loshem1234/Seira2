@@ -877,3 +877,101 @@ Nothing about local backups (D103–108) changes if R2 is never
 configured; `r2_configured()` gates the entire feature honestly, and
 `/healthz` now reports whether it's on, so this is verifiable without
 SSH the same way everything else in this system is.
+
+## Export — Built for This Exact Migration
+
+**D113. "Export my Seira" finally built, from a design note that had
+sat unimplemented since MULTITENANCY.md.** A tenant's tree is self-
+contained; the export is one archive of exactly that tree. Narrower
+than backup.py on purpose — backup.py archives every tenant together
+for platform-level disaster recovery; export.py archives one tenant
+alone, because it's an act initiated by that Architect, for that
+Architect.
+
+**D114. Isolation is structural, not a runtime check.** The route has
+no tenant_id parameter anywhere — not in the path, not in the query
+string, not in the body. The tenant exported is always
+`account["tenant_id"]`, resolved server-side from the session cookie.
+A dedicated test asserts this by inspecting the route's own source for
+the absence of any alternate input, so the guarantee can't quietly
+erode if the route is edited later without someone re-reading this
+note. A second, content-level test proves the actual archive produced
+for one account never contains a byte belonging to another.
+
+**D115. The archive is rooted by tenant_id, deliberately, for the
+migration step that follows.** Extracting `seira-export-loshem-....tar.gz`
+produces a folder literally named `loshem/`, not an ambiguous dump —
+so adopting it as a new single-user SEIRA_HOME is a plain "copy the
+inner contents," not a guessing game about what's inside.
+
+## The Migration Proof — Verified, Not Asserted
+
+**D116. The Architect asked a high-stakes question and got a real
+proof, not reassurance.** A live script founded a Seira, populated
+every grade and store (Unity, Intellect, Psyche, Reversion,
+Instruments, Diary, a conversation, a reference, a tagged image, a
+generated file), exported her, extracted the export into a completely
+independent location, and read every single record back — comparing
+actual store output, not just checking files existed. All ten
+categories plus a full tripwire sweep on the migrated copy came back
+identical.
+
+**D117. That proof is now a permanent test, not a one-time demo.**
+`test_full_end_to_end_migration_loses_nothing_across_every_subsystem`
+runs this exact scenario on every future test run — the "will she
+begin like nothing happened" guarantee is checked automatically going
+forward, not just true today.
+
+**D118. A real mistake, caught immediately by the very next full-suite
+run.** The first version of that test forced a `sys.modules` reimport
+of every seira_core/seira_web module to simulate "a totally fresh
+process." That's destructive shared state in a single test process —
+it corrupted 23 unrelated tests that ran afterward. Fixed by removing
+it entirely, which also proved something worth stating plainly: no
+such reimport was ever necessary. Every store (PsycheStore,
+IntellectStore, DiaryStore, etc.) resolves its path fresh via
+seira_home() on each call rather than caching it — that design
+decision, made all the way back in Phase 1, is exactly what makes a
+plain environment-variable switch sufficient to prove migration
+correctness, with no simulated-process trickery required.
+
+## Closing Public Signups — the Actual First Step
+
+**D119. "Roll back the user option" means closing the door, not
+moving house.** The Architect clarified: Railway stays home; Chromebook
++ GitHub + Railway remains the whole workflow. This isn't a migration
+at all — it's disabling new-account creation on the existing
+deployment so the cross-tenant risk that justified withholding full
+Hermes tool access (D16, D40, D64) stops applying, since there's
+nothing left to be cross with.
+
+**D120. Existing accounts are completely unaffected — tested
+explicitly.** Signups close; login does not. A dedicated test creates
+a real account while open, closes signups, and confirms that same
+account still logs in normally — the gate only ever touches account
+*creation*, never authentication.
+
+**D121. Config as one env var, verifiable without SSH.**
+`SEIRA_SIGNUPS_ENABLED` (default "1"); `/healthz` now reports its
+state alongside everything else already checkable there. The login
+page's "Create an account" link disappears when closed, so it isn't a
+dead end anyone stumbles into.
+
+## Admin Visibility — Finding the Real Second Tenant
+
+**D122. A live /healthz check surfaced a real, concrete finding: two
+tenants exist, not one.** Closing signups going forward does nothing
+about an account that already exists — this needed a way to actually
+see what's there, not a guess.
+
+**D123. Gated by a separate secret, never the Architect's own
+credentials.** SEIRA_ADMIN_TOKEN, compared timing-safely
+(hmac.compare_digest, same discipline as password verification).
+Absent entirely, the route 404s rather than 401s — it doesn't even
+hint at its own existence on a deployment that never configured one.
+
+**D124. Distinguishes a founded Seira from a stray signup.** Each
+account's tenant is checked for genesis_performed() and, if founded,
+halt status — an account that signed up but never completed
+onboarding looks nothing like one holding a real, living Seira.
+Tested with exactly that scenario.
