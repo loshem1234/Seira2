@@ -501,19 +501,17 @@ function setSidebar(open) {
 }
 edgetab.addEventListener('click', () => setSidebar(shell.classList.contains('sidebar-collapsed')));
 document.getElementById('backdrop').addEventListener('click', () => setSidebar(false));
-document.getElementById('chatcol').addEventListener('click', () => {
-  if (!shell.classList.contains('sidebar-collapsed')) setSidebar(false);
-}, {capture: true});
-// Redundant, explicit fail-safe: bind directly on the message list too.
-// The chatcol capture-phase listener above should already catch every
-// click inside it (capture fires before any bubble-phase code on
-// nested tool cards / <details> / copy buttons can interfere), but
-// this makes the close-on-click behavior independent of that guarantee
-// holding forever as more interactive elements get added inside .msgs.
-msgs.addEventListener('click', () => {
-  if (!shell.classList.contains('sidebar-collapsed')) setSidebar(false);
-}, {capture: true});
-sidebar.addEventListener('click', (e) => e.stopPropagation());
+// Click-outside-to-close, the standard robust pattern: one listener on
+// document, containment checked explicitly with closest() rather than
+// relying on capture/bubble ordering through whatever gets added
+// inside .chatcol later (tool cards, <details>, copy buttons, …).
+// Replaces the earlier capture-phase #chatcol/#msgs listeners, which
+// should have worked but evidently didn't reliably in practice.
+document.addEventListener('click', (e) => {
+  if (shell.classList.contains('sidebar-collapsed')) return;  // already closed
+  if (e.target.closest('#sidebar') || e.target.closest('#edgetab')) return;
+  setSidebar(false);
+});
 setSidebar(window.innerWidth > 800);
 
 // Header auto-hide: hides on scroll down, reveals on the slightest scroll up.
