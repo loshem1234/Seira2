@@ -2,10 +2,11 @@
    Signature: the vesica piscis sigil, pulsing, ray descending.
    Rust remains reserved for the halt alone. */
 :root {
-  --void: #120820; --deep: #1B0E30; --surface: #221240; --edge: #3A2364;
+  --void: #0A0416; --deep: #130A26; --surface: #190D34; --edge: #2E1A54;
   --gold: #D4AF37; --gold-bright: #F0CE5E; --gold-dim: #8F7523;
   --text: #E9DCB0; --text-dim: #A5966F;
   --rust: #B0442A; --sage: #7C8F6A;
+  --ember: #D46A2A; --ember-bright: #F0954E;
 }
 html, body { height: 100%; }
 /* Only the chat shell locks page-level scroll (its own .msgs region
@@ -16,7 +17,7 @@ html { background: var(--void); }
 body {
   margin: 0; min-height: 100vh; color: var(--text);
   background: radial-gradient(ellipse 120% 70% at 50% -10%,
-              #2A1650 0%, var(--deep) 40%, var(--void) 100%);
+              #1F1040 0%, var(--deep) 40%, var(--void) 100%);
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-size: 17px; line-height: 1.55;
 }
@@ -185,14 +186,45 @@ a:focus, button:focus, input:focus, textarea:focus {
 .toolchip.downloadcard::before { content: "\2913"; }
 .toolchip.downloadcard:hover { background: rgba(212,175,55,.1); color: var(--gold-bright); }
 
-/* Live activity: the breathing line */
+/* Live activity: her braid marks the moment */
 .activity { align-self: flex-start; display: flex; align-items: center;
   gap: .6rem; color: var(--gold); font-variant: small-caps;
   letter-spacing: .14em; font-size: .85rem; }
-.activity .orb { width: .55rem; height: .55rem; border-radius: 50%;
-  background: var(--gold); animation: breathe 1.4s ease-in-out infinite; }
+.braid { flex-shrink: 0; animation: braidsway 2.6s ease-in-out infinite; }
+.braid.small { width: 12px; height: 17px; }
+.braid.still { animation: none; opacity: .45; }
+@keyframes braidsway {
+  0%, 100% { transform: rotate(-3deg) scaleY(1); }
+  50% { transform: rotate(3deg) scaleY(1.04); }
+}
+.braid .strand { animation: braidbreathe 2.6s ease-in-out infinite; transform-origin: 14px 20px; }
+.braid .s1 { animation-delay: 0s; }
+.braid .s2 { animation-delay: .35s; }
+.braid .s3 { animation-delay: .7s; opacity: .55; }
+@keyframes braidbreathe {
+  0%, 100% { opacity: .65; } 50% { opacity: 1; }
+}
+/* Kept for other pulsing marks (streaming cursor, sigil) that aren't
+   the braid itself. */
 @keyframes breathe { 0%,100% { opacity: .25; transform: scale(.8); }
   50% { opacity: 1; transform: scale(1.15); } }
+
+/* Rising embers: a quiet field of drifting sparks behind the thread */
+.chatcol { position: relative; }
+.embers { position: absolute; inset: 0; overflow: hidden;
+  pointer-events: none; z-index: 0; }
+.ember { position: absolute; left: var(--x); bottom: -1rem;
+  width: var(--size); height: var(--size); border-radius: 50%;
+  background: radial-gradient(circle, var(--ember-bright) 0%, var(--ember) 60%, transparent 100%);
+  box-shadow: 0 0 6px 1px rgba(212,106,42,.55);
+  opacity: 0; animation: emberrise var(--dur) ease-in var(--delay) infinite; }
+@keyframes emberrise {
+  0%   { transform: translate(0, 0) scale(.7); opacity: 0; }
+  8%   { opacity: .85; }
+  55%  { transform: translate(calc(var(--x) * -.15), -55vh) scale(1); opacity: .6; }
+  100% { transform: translate(calc(var(--x) * -.3), -100vh) scale(.4); opacity: 0; }
+}
+.msgs, .composer { position: relative; z-index: 1; }
 
 /* ── The activity feed: tool cards, terminal lines, delegation ── */
 .toolcard { align-self: flex-start; max-width: 74ch; width: fit-content;
@@ -225,9 +257,6 @@ a:focus, button:focus, input:focus, textarea:focus {
   gap: .55rem; color: var(--gold-dim); font-variant: small-caps;
   letter-spacing: .14em; font-size: .78rem; list-style: none; }
 .reasoning summary::-webkit-details-marker { display: none; }
-.reasoning summary .orb { width: .45rem; height: .45rem; border-radius: 50%;
-  background: var(--gold); animation: breathe 1.4s ease-in-out infinite; }
-.reasoning summary .orb.still { animation: none; opacity: .35; }
 .reasoning .reasonbody { margin-top: .4rem; color: var(--text-dim);
   font-size: .82rem; font-style: italic; white-space: pre-wrap;
   overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
@@ -367,6 +396,7 @@ form.stack button { margin-top: 1rem; }
 .halt h1 { color: var(--rust); font-variant: small-caps; letter-spacing: .3em;
   font-family: 'Cinzel Decorative', serif; }
 @media (prefers-reduced-motion: reduce) {
-  .sigil-pulse, .activity .orb, .reasoning summary .orb,
+  .sigil-pulse, .braid, .braid .strand, .ember,
   .msg.assistant.streaming .body::after { animation: none !important; }
+  .ember { display: none; }
   * { transition: none !important; } }
