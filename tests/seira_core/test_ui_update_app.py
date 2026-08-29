@@ -256,3 +256,71 @@ def test_image_appears_inline_in_chat_history_after_reload(tmp_path, monkeypatch
     page = c.get("/").text
     assert f'/api/images/{img_id}' in page
     assert '<img class="chatimg"' in page
+
+
+def test_rename_conversation(client):
+    r = client.post("/api/conversations")
+    conv_id = r.json()["conv_id"]
+    r2 = client.post(f"/api/conversations/{conv_id}/rename",
+                     json={"title": "About the Archivum"})
+    assert r2.status_code == 200 and r2.json()["title"] == "About the Archivum"
+    page = client.get("/").text
+    assert "About the Archivum" in page
+
+
+def test_rename_empty_title_refused(client):
+    r = client.post("/api/conversations")
+    conv_id = r.json()["conv_id"]
+    r2 = client.post(f"/api/conversations/{conv_id}/rename", json={"title": "  "})
+    assert r2.status_code == 400
+
+
+def test_rename_nonexistent_conversation(client):
+    r = client.post("/api/conversations/c-doesnotexist/rename",
+                    json={"title": "x"})
+    assert r.status_code == 404
+
+
+def test_archive_hides_from_sidebar_but_keeps_transcript(tmp_path, monkeypatch):
+    import seira_web.app as appmod
+    from fastapi.testclient import TestClient
+    from seira_web import conversations as convs
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform3"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants3"))
+    monkeypatch.delenv("SEIRA_HOME", raising=False)
+
+    class StubLLM:
+        def complete(self, system, messages, tools):
+            return {"content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn"}
+
+    app = appmod.create_app(llm_client_factory=lambda model=None: StubLLM())
+    c = TestClient(app, follow_redirects=False)
+    c.post("/signup", data={"email": "arch@example.com", "password": "long-enough-password"})
+    c.post("/onboard", data={"telos": "t", "relation": "r", "self_model": "s"})
+
+    r = c.post("/api/conversations")
+    conv_id = r.json()["conv_id"]
+    c.post("/api/chat", json={"action": "send", "conv_id": conv_id,
+                              "message": "a real message"})
+    r2 = c.post(f"/api/conversations/{conv_id}/archive")
+    assert r2.status_code == 200
+
+    page = c.get("/").text
+    assert "a real message" not in page
+
+    account = acct.verify_login("arch@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        visible = [x["conv_id"] for x in convs.list_conversations()]
+        all_convs = [x["conv_id"] for x in convs.list_conversations(include_archived=True)]
+        records = convs.records(conv_id)
+    assert conv_id not in visible
+    assert conv_id in all_convs  # never actually gone
+    assert any(rec["text"] == "a real message" for rec in records if rec["kind"] == "user")
+
+
+def test_archive_nonexistent_conversation(client):
+    r = client.post("/api/conversations/c-doesnotexist/archive")
+    assert r.status_code == 404
