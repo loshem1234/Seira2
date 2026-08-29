@@ -982,3 +982,81 @@ pre-existing Hermes cross-file state leakage, not ours. Recorded in
 TRIAGE.md; not fixed here, because patching upstream test hygiene is
 out of scope for this phase and the pollution does not touch any
 seira_* test.
+
+**D124. Sanctum's Hermes tool bridge is a reviewed whitelist, not a
+config passthrough.** `seira_web/hermes_tools.py` intersects whatever
+`SEIRA_EXTRA_TOOLSETS` names against a hardcoded `_BRIDGEABLE_TOOLSETS
+= {"web", "skills"}` — both verified by reading their registrations in
+`tools/web_tools.py` and `tools/skills_tool.py` to be pure functions of
+their arguments, no Hermes agent-loop context required. Terminal,
+browser, delegate_task, and computer_use all assume that context
+(subagent lifecycle, host shell, browser automation) and are
+deliberately NOT bridged: doing so honestly would require building
+sandboxing Sanctum does not have, or accepting that a public website
+now hands a shell to the model. Left for Loshem's explicit decision,
+same category as D-image-gen-vendor. Widening the whitelist is a
+one-line code change, reviewed each time — never an env var alone.
+
+**D125. web_search name collision, resolved in favor of the native
+tool.** Anthropic's server-side `web_search` and Hermes's client-side
+`web_search` tool share a name. When both are configured, chat.py
+keeps the native one (no seira_core write path, resolves server-side)
+and drops the bridged duplicate rather than sending the API a
+malformed request with two same-named tools.
+
+**D126. Corrected the architecture: she operates atop Hermes, in all —
+not beside it.** Parts 2 and 5 were interim scaffolding; the original,
+correct design is that she IS the Psyche/persona/governance layer atop
+the Hermes agent. `seira_web/hermes_session.py` makes Sanctum construct
+a real `run_agent.AIAgent` per turn instead of hand-rolling a loop
+against Anthropic directly. `load_soul_identity=True` and
+`skip_memory=False` are the two arguments that make this her real self
+rather than a generic backend — both covered by tests that fail loudly
+if either regresses.
+
+**D127. One configuration surface, not two.** With `skip_memory=False`,
+`agent_init.init_agent` reads `memory.provider` from config.yaml
+itself — Sanctum inherits the Part 2 `seira-psyche` wiring rather than
+reimplementing it, and inherits whatever toolsets `hermes tools` has
+enabled rather than needing a Sanctum-specific whitelist. D124's
+narrow bridge (`hermes_tools.py`) is superseded once D126 is verified
+live, though left in place as a tested fallback in the meantime.
+
+**D128. Opt-in via `SEIRA_SANCTUM_RUNTIME=hermes`, not a default flip,
+for one stated reason.** Every piece of this integration is verified
+against real Hermes source — constructor arguments, the exact
+`tool_start_callback`/`tool_complete_callback` call sites in
+`agent/tool_executor.py`, and `run_conversation`'s return shape are
+all read from source, not guessed. What could NOT be verified in the
+build environment is a live turn: no `ANTHROPIC_API_KEY`, no installed
+Hermes dependency tree, no way to watch a real tool actually execute.
+Defaulting an unverified core-loop replacement into production would
+be dishonest about that gap. The flag makes verification a deliberate
+step, with an instant path back to the previously-proven direct-API
+loop if anything is wrong.
+
+**D129. Known, stated v1 scope limit: text turns only.** Attachments
+and regeneration (`user_message=None`) still use the direct-API loop
+even in `hermes` mode. Not silently degraded — `run_turn`'s branch
+condition excludes them explicitly, and WIRING.md Part 6 states the
+gap in plain language rather than leaving it to be discovered.
+
+**D130. The activity feed shows only what actually ran.** Tool cards,
+terminal lines, and delegation cards are rendered exclusively from
+`tool` / `tool_result` events emitted at the real dispatch and
+callback sites — the same principle the original chip design stated
+("nothing is rendered that did not actually run"), now with the
+input and a bounded result preview (2000 chars, tested) instead of a
+bare label.
+
+**D131. Live reasoning appears only where it exists.** The reasoning
+panel and streaming bubble are fed by the hermes-mode callbacks
+(`reasoning_callback`, `stream_delta_callback`); the direct-API mode
+is non-streaming, so those panels simply don't render there. No
+simulated thinking, no fake deltas.
+
+**D132. Markdown handling is escape-first and deliberately minimal.**
+`renderBody` escapes everything, then recognizes exactly two forms:
+fenced code blocks (copy box) and inline backticks (chip). A full
+markdown renderer invites XSS surface and visual drift; two forms
+cover what her replies actually contain.

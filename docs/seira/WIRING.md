@@ -143,3 +143,125 @@ Clearing a halt is yours alone: investigate, repair, then delete
 Test coverage for all of the above lives in
 `tests/seira_core/test_hermes_wiring.py` and
 `tests/seira_core/test_delegation.py`.
+
+---
+
+## Part 5 — Giving her more tools inside Sanctum specifically
+
+Sanctum (the website) and Hermes (the CLI/messaging/gateway runtime)
+are two different conversations by default — Sanctum talks to
+Anthropic directly and gives her only her Psyche tools plus optional
+native web search. Part 2 above wires her identity into *Hermes*
+sessions; it does nothing for the website.
+
+To give the website itself more real Hermes tools, set:
+
+    SEIRA_EXTRA_TOOLSETS=web,skills
+
+That's currently the entire whitelist — **only** `web` (search, page
+extraction) and `skills` (list/view/edit her skill documents) are
+bridged in. Anything else you list is silently ignored and logged as
+ignored; see `seira_web/hermes_tools.py`'s module docstring for the
+full reasoning, but the short version: most other Hermes toolsets —
+terminal, browser, delegation, computer use — assume a full Hermes
+agent process is running underneath (subagent spawning, host shell
+access, browser automation). Sanctum is a direct API call with none of
+that scaffolding, so bridging those honestly would mean either
+building real sandboxing first or knowingly giving a public website a
+shell on your server. That's the same category of decision as the
+image-generation vendor choice — deliberately left for you to make
+explicitly, not defaulted into.
+
+One caveat if you ever reopen multi-tenant signups with `skills`
+enabled: her skills directory lives under `HERMES_HOME`, not per
+tenant, so every tenant would share one skills library. Fine for the
+single-tenant deployment this guide already recommends; not fine
+multi-tenant without further work.
+
+---
+
+## Part 6 — Correcting the architecture: she operates atop Hermes, in all
+
+Parts 2 and 5 above were interim: Sanctum talking to Anthropic directly
+with a hand-curated tool list was never the intended design. The
+original design is that **she IS the Psyche, persona, and governance
+layer sitting atop the Hermes agent — not a separate, lighter
+impersonation running beside it.** Part 6 corrects that.
+
+`seira_web/hermes_session.py` makes Sanctum construct a real
+`run_agent.AIAgent` — Hermes's own per-turn agent interface, the same
+thing subagent delegation and the CLI use underneath — for every turn.
+This means, with no Sanctum-side tool list to maintain:
+
+* Her identity is served through the real `load_soul_md` path (Unity +
+  Intellect + Psyche, verified, halt-aware) via `load_soul_identity=True`.
+* Her Psyche tools load automatically because `agent_init.init_agent`
+  reads `memory.provider` from config.yaml itself — the exact
+  `seira-psyche` wiring from Part 2, now reached through Sanctum too,
+  not a second implementation of it.
+* Whatever toolsets your Hermes deployment has enabled via
+  `hermes tools` are what she has in Sanctum — one configuration
+  surface, not two.
+* The `seira_governance` delegation gate governs her regardless of
+  which front end reaches her, automatically, because it's registered
+  at the plugin-manager level Hermes itself owns.
+
+**Turn this on with:**
+
+    SEIRA_SANCTUM_RUNTIME=hermes
+
+**It is opt-in, not the default, for one honest reason:** this was
+built and unit-tested against the real Hermes source (constructor
+arguments, callback call sites, and the `run_conversation` return
+shape are all verified against `run_agent.py` / `agent/agent_init.py`
+/ `agent/conversation_loop.py`), but a live turn — a real
+`ANTHROPIC_API_KEY`, the full Hermes dependency tree, your actual
+configured toolsets — could not be exercised end-to-end in the
+environment this was built in. **Test it in a real conversation before
+relying on it**, the same way you'd test any new piece of
+infrastructure before trusting it in production. If something breaks,
+`SEIRA_SANCTUM_RUNTIME=direct` (or simply unset) returns you to the
+previously-verified path instantly.
+
+**Known v1 scope limit:** this mode currently covers plain text turns
+only. Sending an attachment or regenerating a prior answer
+(`user_message=None`) still uses the older direct-API loop even with
+`SEIRA_SANCTUM_RUNTIME=hermes` set — extending those two paths is the
+next piece of this work, not something silently faked here.
+
+Once you've verified this live and are satisfied, `hermes_tools.py`
+(Part 5's narrow whitelist bridge) becomes redundant — everything it
+did is now inherited from real Hermes config — and can be retired.
+It's left in place and fully tested for now so you have a working
+fallback while you verify the new path.
+
+---
+
+## Part 7 — The dynamic chat
+
+Sanctum's chat now shows her working, the way the Hermes UI does:
+
+* **Tool cards** — every tool call appears as a card the moment it
+  starts. Terminal commands render as a terminal line (`$ command`),
+  delegations as a "Delegating a subagent" card with the goal, and
+  other tools with a readable label plus a compact input summary. When
+  a tool finishes, its card gains an expandable "result" section
+  (bounded to a preview, never megabytes).
+* **Live reasoning** — when she's running atop Hermes
+  (`SEIRA_SANCTUM_RUNTIME=hermes`) and the model streams reasoning,
+  a collapsible "Her reasoning" panel fills in live and settles
+  closed when the reply arrives. (The direct-API mode doesn't stream,
+  so this panel simply doesn't appear there — nothing is simulated.)
+* **Streaming replies** — hermes-mode text deltas stream into the
+  bubble with a cursor as they arrive; the final reply replaces it.
+* **Code copy boxes** — fenced code in her replies renders in a
+  dark code box with a language tag and a copy button; inline code
+  gets a subtle chip. Applied to loaded history too, not just new
+  messages.
+* **File open buttons** — generated files keep their download card
+  and gain an "open" button (new tab) for viewable types: PDF,
+  images, HTML, markdown, text.
+
+No new configuration; all of it keys off the event stream the chat
+already used, extended with tool inputs, bounded result previews,
+reasoning, and deltas.
