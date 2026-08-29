@@ -73,6 +73,11 @@ TOOL_LABELS = {
     "seira_paradigm_revise": "Revising a paradigm",
     "seira_skill_authorize": "Authorizing a skill",
     "seira_generate_image": "Generating an image",
+    "web_search": "Searching the web",
+    "web_extract": "Reading a page",
+    "skills_list": "Checking her skills",
+    "skill_view": "Reading a skill",
+    "skill_manage": "Updating a skill",
 }
 
 
@@ -119,6 +124,18 @@ def _anthropic_tools(provider, web_search: bool = False) -> List[Dict[str, Any]]
         # per-tenant sandbox question (D40).
         tools.append({"type": WEB_SEARCH_TOOL_TYPE, "name": "web_search",
                       "max_uses": WEB_SEARCH_MAX_USES})
+    # Real Hermes tools, deliberately narrow — see seira_web/hermes_tools.py
+    # for exactly which toolsets and why. Off entirely unless
+    # SEIRA_EXTRA_TOOLSETS is set. Anthropic's native web_search (above)
+    # and Hermes's own client-side web_search tool share a name — if both
+    # are enabled, keep the native one and drop the bridged duplicate
+    # rather than sending the API two tools with the same name.
+    from seira_web.hermes_tools import extra_tool_schemas
+    existing_names = {t["name"] for t in tools if "name" in t}
+    for schema in extra_tool_schemas():
+        if schema["name"] not in existing_names:
+            tools.append(schema)
+            existing_names.add(schema["name"])
     return tools
 
 
@@ -181,6 +198,32 @@ def run_turn(
     Seira raises from system_prompt_block and does not converse.
     """
     emit = emit or (lambda e: None)
+
+    # Opt-in: run this turn as a REAL Hermes agent turn (her Psyche,
+    # her configured toolsets, the governance gate — all inherited from
+    # Hermes config, nothing curated here) rather than the direct-API
+    # loop below. See seira_web/hermes_session.py's module docstring
+    # for the full architecture rationale.
+    #
+    # Scoped to v1: plain text turns only (no attachment, no
+    # regeneration via user_message=None). Those paths still use the
+    # direct-API loop below even in "hermes" mode — extending them is
+    # the next piece of this work, not silently faked here.
+    if (os.environ.get("SEIRA_SANCTUM_RUNTIME", "direct") == "hermes"
+            and user_message is not None and attachment is None):
+        from seira_web.hermes_session import run_turn_via_hermes
+        record_fields: Dict[str, Any] = {"text": user_message}
+        # History BEFORE this turn's user message — it's passed to
+        # run_turn_via_hermes separately as user_message, matching
+        # run_conversation's own (conversation_history, user_message)
+        # split; appending it to convs first would double it up.
+        history = convs.model_history(conv_id)
+        convs.append(conv_id, "user", **record_fields)
+        result = run_turn_via_hermes(conv_id, user_message, history, emit)
+        rec = convs.append(conv_id, "assistant", text=result["reply"])
+        convs.touch(conv_id)
+        return {"reply": result["reply"], "assistant_id": rec["id"], "tool_events": []}
+
     emit({"event": "phase", "label": "Reading who she is"})
     system = provider.system_prompt_block()
     if length_pref and length_pref in LENGTH_INSTRUCTIONS:
@@ -287,9 +330,14 @@ def run_turn(
         results = []
         for tu in tool_uses:
             label = TOOL_LABELS.get(tu["name"], tu["name"])
-            emit({"event": "tool", "tool": tu["name"], "label": label})
+            emit({"event": "tool", "tool": tu["name"], "label": label,
+                 "input": tu.get("input") or {}, "tool_call_id": tu.get("id", "")})
             try:
-                result_str = provider.handle_tool_call(tu["name"], tu.get("input") or {})
+                from seira_web.hermes_tools import extra_tool_names, dispatch_extra_tool
+                if tu["name"] in extra_tool_names():
+                    result_str = dispatch_extra_tool(tu["name"], tu.get("input") or {})
+                else:
+                    result_str = provider.handle_tool_call(tu["name"], tu.get("input") or {})
             except Exception as e:  # a bug or bad input must not crash the turn
                 result_str = json.dumps({
                     "ok": False,
@@ -297,6 +345,9 @@ def run_turn(
                 })
             tool_events.append({"tool": tu["name"], "label": label,
                                 "result": result_str})
+            emit({"event": "tool_result", "tool": tu["name"],
+                 "result": (result_str or "")[:2000],
+                 "tool_call_id": tu.get("id", "")})
             if tu["name"] == "seira_create_file":
                 try:
                     parsed_file = json.loads(result_str)
