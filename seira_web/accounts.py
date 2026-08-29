@@ -133,6 +133,19 @@ def resolve_session(token: str) -> Optional[Dict[str, Any]]:
     return _load(_accounts_path()).get(s["account_id"])
 
 
+def list_accounts() -> list[Dict[str, Any]]:
+    """Every account on the platform — email, tenant_id, created_at.
+    Never exposed to a normal logged-in session; only reachable via the
+    admin-token-gated route in app.py."""
+    accounts = _load(_accounts_path())
+    return sorted(
+        [{"account_id": a["account_id"], "email": a["email"],
+          "tenant_id": a["tenant_id"], "created_at": a["created_at"]}
+         for a in accounts.values()],
+        key=lambda a: a["created_at"],
+    )
+
+
 def destroy_session(token: str) -> None:
     sessions = _load(_sessions_path())
     if token in sessions:
