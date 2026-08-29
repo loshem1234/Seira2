@@ -1,0 +1,15 @@
+# Hermes config for Sanctum's hermes-mode agent (SEIRA_SANCTUM_RUNTIME=hermes).
+#
+# Baked into the Docker image (see Dockerfile.sanctum) rather than
+# placed on a persistent volume, because nothing in Sanctum's per-turn
+# AIAgent path ever writes to config.yaml — only Hermes's interactive
+# `hermes configure` command does, which Sanctum never runs. A
+# read-only, image-baked file is simpler and can't go silently missing
+# the way an unmounted or empty volume path can.
+
+memory:
+  provider: seira-psyche
+
+plugins:
+  enabled:
+    - seira_governance
