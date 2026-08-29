@@ -33,6 +33,25 @@ from seira_web.chat import AnthropicClient, run_turn
 
 WEB_SEARCH_GLOBALLY_ENABLED = os.environ.get("SEIRA_WEB_SEARCH_ENABLED", "1") != "0"
 
+
+def _signups_enabled() -> bool:
+    """Whether new-account creation is open. Read per-request, never
+    captured at create_app time, so an operator can close signups on a
+    running deployment (set SEIRA_SIGNUPS_ENABLED=0 and restart, or flip
+    the env live where the platform allows it) without redeploying code.
+    Existing accounts and logins are entirely unaffected — closing the
+    door is not evicting the residents."""
+    return os.environ.get("SEIRA_SIGNUPS_ENABLED", "1").strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+_SIGNUPS_CLOSED_HTML = (
+    "<!doctype html><html><head><title>Signups closed</title></head>"
+    "<body><h2>Signups are closed</h2>"
+    "<p>This Sanctum is not accepting new accounts. "
+    "Existing accounts can still <a href=\"/login\">log in</a>.</p>"
+    "</body></html>")
+
 _HERE = Path(__file__).parent
 logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -95,16 +114,24 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     @app.get("/signup", response_class=HTMLResponse)
     def signup_page(request: Request):
+        if not _signups_enabled():
+            return HTMLResponse(_SIGNUPS_CLOSED_HTML, status_code=403)
         return templates.TemplateResponse(request, "auth.html",
-                                          {"mode": "signup", "error": None})
+                                          {"mode": "signup", "error": None,
+                                           "signups_enabled": True})
 
     @app.post("/signup")
     def signup(request: Request, email: str = Form(...), password: str = Form(...)):
+        if not _signups_enabled():
+            # Checked before create_account so a closed door creates
+            # nothing — no account row, no tenant tree, no session.
+            return HTMLResponse(_SIGNUPS_CLOSED_HTML, status_code=403)
         try:
             account = acct.create_account(email, password)
         except acct.AccountError as e:
             return templates.TemplateResponse(
-                request, "auth.html", {"mode": "signup", "error": str(e)},
+                request, "auth.html", {"mode": "signup", "error": str(e),
+                                       "signups_enabled": True},
                 status_code=400)
         token = acct.create_session(account["account_id"])
         return _set_session(RedirectResponse("/onboard", status_code=303), token)
@@ -112,7 +139,8 @@ def create_app(llm_client_factory=None) -> FastAPI:
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):
         return templates.TemplateResponse(request, "auth.html",
-                                          {"mode": "login", "error": None})
+                                          {"mode": "login", "error": None,
+                                           "signups_enabled": _signups_enabled()})
 
     @app.post("/login")
     def login(request: Request, email: str = Form(...), password: str = Form(...)):
@@ -120,7 +148,8 @@ def create_app(llm_client_factory=None) -> FastAPI:
         if account is None:
             return templates.TemplateResponse(
                 request, "auth.html",
-                {"mode": "login", "error": "Email or password not recognized."},
+                {"mode": "login", "error": "Email or password not recognized.",
+                 "signups_enabled": _signups_enabled()},
                 status_code=401)
         token = acct.create_session(account["account_id"])
         return _set_session(RedirectResponse("/", status_code=303), token)
@@ -543,6 +572,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
         monthly = list_backups("monthly")
         return JSONResponse(
             {"tenants": len(results), "halted": halted,
+             "signups_enabled": _signups_enabled(),
              "backups": {
                  "daily": {"count": len(daily),
                           "latest": daily[0]["mtime"] if daily else None},
@@ -551,6 +581,49 @@ def create_app(llm_client_factory=None) -> FastAPI:
                  "r2_configured": r2_configured(),
              }},
             status_code=status_code)
+
+    @app.get("/api/admin/tenants")
+    def admin_tenants(request: Request):
+        """Operator-only census of every account, with each Seira's real
+        founding and halt status read from her own tenant tree — not from
+        any cached flag. Gated by SEIRA_ADMIN_TOKEN:
+
+        * token unconfigured → 404, indistinguishable from a route that
+          does not exist (the endpoint should not even hint at itself);
+        * token configured but absent/wrong → 401 (compared with
+          hmac.compare_digest, so a wrong guess learns nothing from
+          timing);
+        * correct token → the census.
+
+        This is the wind-down instrument for a multi-tenant deployment:
+        close signups (SEIRA_SIGNUPS_ENABLED=0), then use this census to
+        see exactly who remains — founded, stray (signed up but never
+        completed Genesis), or halted — before contacting or migrating
+        them. list_accounts() itself is never reachable any other way."""
+        import hmac as _hmac
+        configured = os.environ.get("SEIRA_ADMIN_TOKEN", "").strip()
+        if not configured:
+            raise HTTPException(status_code=404)
+        presented = request.headers.get("x-admin-token", "")
+        if not _hmac.compare_digest(presented, configured):
+            raise HTTPException(status_code=401)
+
+        from seira_core.genesis import genesis_performed
+        from seira_core.tripwire import is_halted
+        accounts = []
+        for a in acct.list_accounts():
+            founded = False
+            halted = False
+            try:
+                with tenant_scope(a["tenant_id"]):
+                    founded = genesis_performed()
+                    halted = is_halted() if founded else False
+            except SeiraCoreError as e:
+                logger.warning("admin census: tenant %s unreadable: %s",
+                               a["tenant_id"], e)
+            accounts.append({**a, "seira_founded": founded, "halted": halted})
+        return JSONResponse({"total_accounts": len(accounts),
+                             "accounts": accounts})
 
     @app.get("/diary", response_class=HTMLResponse)
     def diary_page(request: Request, account: dict = Depends(require_account)):
