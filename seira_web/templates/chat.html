@@ -26,6 +26,20 @@
     {% endfor %}
   </aside>
   <div class="chatcol" id="chatcol">
+    <div class="embers" aria-hidden="true">
+      <span class="ember" style="--x:6%;  --dur:9.5s; --delay:0s;   --size:.22rem;"></span>
+      <span class="ember" style="--x:14%; --dur:12s;  --delay:2.1s; --size:.16rem;"></span>
+      <span class="ember" style="--x:23%; --dur:8.2s;  --delay:4.6s; --size:.24rem;"></span>
+      <span class="ember" style="--x:33%; --dur:13.5s; --delay:.8s;  --size:.14rem;"></span>
+      <span class="ember" style="--x:44%; --dur:10s;  --delay:6.2s; --size:.2rem;"></span>
+      <span class="ember" style="--x:55%; --dur:11.2s; --delay:3.4s; --size:.18rem;"></span>
+      <span class="ember" style="--x:65%; --dur:9s;    --delay:8s;   --size:.22rem;"></span>
+      <span class="ember" style="--x:74%; --dur:14s;  --delay:1.6s; --size:.15rem;"></span>
+      <span class="ember" style="--x:83%; --dur:8.8s;  --delay:5.3s; --size:.2rem;"></span>
+      <span class="ember" style="--x:91%; --dur:12.6s; --delay:7.1s; --size:.17rem;"></span>
+      <span class="ember" style="--x:38%; --dur:10.8s; --delay:9.4s; --size:.19rem;"></span>
+      <span class="ember" style="--x:60%; --dur:13s;  --delay:.2s;  --size:.16rem;"></span>
+    </div>
     <div class="msgs" id="msgs">
       {% for r in history %}
         {% if r.kind == 'user' %}
@@ -239,7 +253,7 @@ let reasoningEl = null;
 function appendReasoning(text) {
   if (!reasoningEl) {
     reasoningEl = el(`<details class="reasoning" open>
-      <summary><span class="orb"></span>Her reasoning</summary>
+      <summary>${braidSvg('small')}Her reasoning</summary>
       <div class="reasonbody"></div></details>`);
     msgs.appendChild(reasoningEl);
   }
@@ -248,7 +262,7 @@ function appendReasoning(text) {
 }
 function settleReasoning() {
   if (reasoningEl) { reasoningEl.removeAttribute('open');
-    reasoningEl.querySelector('.orb')?.classList.add('still'); }
+    reasoningEl.querySelector('.braid')?.classList.add('still'); }
   reasoningEl = null;
 }
 
@@ -286,10 +300,24 @@ function addGeneratedImage(imgId, tag, usedRefs) {
     <span class="body">tag: ${esc(tag)}${esc(refNote)}</span></div>`);
   msgs.appendChild(node); scrollEnd();
 }
+// Her mark, in motion: a slow, gently twisting braid — used anywhere
+// a plain pulsing orb would otherwise stand in for "she is working."
+function braidSvg(extraClass) {
+  return `<svg class="braid ${extraClass||''}" viewBox="0 0 28 40" width="16" height="23"
+    xmlns="http://www.w3.org/2000/svg">
+    <path class="strand s1" d="M6 2 C18 8, 2 14, 14 20 C26 26, 10 32, 6 38"
+      fill="none" stroke="var(--gold)" stroke-width="2.1" stroke-linecap="round"/>
+    <path class="strand s2" d="M22 2 C10 8, 26 14, 14 20 C2 26, 18 32, 22 38"
+      fill="none" stroke="var(--gold-bright)" stroke-width="2.1" stroke-linecap="round"/>
+    <path class="strand s3" d="M14 2 C14 10, 14 12, 14 20 C14 28, 14 30, 14 38"
+      fill="none" stroke="var(--gold-dim)" stroke-width="1.3" stroke-linecap="round"
+      opacity=".55"/>
+  </svg>`;
+}
 let activityEl = null;
 function setActivity(label) {
   if (!activityEl) { activityEl = el(
-    `<div class="activity"><span class="orb"></span><span class="lbl"></span></div>`);
+    `<div class="activity">${braidSvg()}<span class="lbl"></span></div>`);
     msgs.appendChild(activityEl); }
   activityEl.querySelector('.lbl').textContent = label; scrollEnd();
 }
@@ -474,6 +502,15 @@ function setSidebar(open) {
 edgetab.addEventListener('click', () => setSidebar(shell.classList.contains('sidebar-collapsed')));
 document.getElementById('backdrop').addEventListener('click', () => setSidebar(false));
 document.getElementById('chatcol').addEventListener('click', () => {
+  if (!shell.classList.contains('sidebar-collapsed')) setSidebar(false);
+}, {capture: true});
+// Redundant, explicit fail-safe: bind directly on the message list too.
+// The chatcol capture-phase listener above should already catch every
+// click inside it (capture fires before any bubble-phase code on
+// nested tool cards / <details> / copy buttons can interfere), but
+// this makes the close-on-click behavior independent of that guarantee
+// holding forever as more interactive elements get added inside .msgs.
+msgs.addEventListener('click', () => {
   if (!shell.classList.contains('sidebar-collapsed')) setSidebar(false);
 }, {capture: true});
 sidebar.addEventListener('click', (e) => e.stopPropagation());
