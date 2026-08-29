@@ -1984,12 +1984,47 @@ def _truncate_content(
 
 
 def load_soul_md(context_length: Optional[int] = None) -> Optional[str]:
-    """Load SOUL.md from HERMES_HOME and return its content, or None.
+    """Load the agent identity (slot #1 in the system prompt), or None.
 
-    Used as the agent identity (slot #1 in the system prompt).  When this
-    returns content, ``build_context_files_prompt`` should be called with
-    ``skip_soul=True`` so SOUL.md isn't injected twice.
+    Seira fork behavior: when a founded Seira exists (Genesis performed
+    under the ambient scope — the single-user SEIRA_HOME by default, or
+    whatever tenant scope a caller has entered), her identity is rendered
+    live from the eternal grades: Unity + Intellect + Psyche digest,
+    integrity-verified on every render. A stale or hand-edited SOUL.md
+    can then never be the identity actually served. If the tripwire has
+    halted her, ``SeiraHaltedError`` propagates deliberately — a halted
+    Seira does not converse at all (Art. 32.3); prompt construction
+    fails rather than serving a hollowed identity.
+
+    With no founded Seira (or seira_core absent from the tree), the
+    original behavior applies: read SOUL.md from HERMES_HOME.
+
+    When this returns content, ``build_context_files_prompt`` should be
+    called with ``skip_soul=True`` so the identity isn't injected twice.
     """
+    try:
+        from seira_core.errors import SeiraCoreError, SeiraHaltedError
+        from seira_core.genesis import genesis_performed
+        from seira_core.prompt_block import render_identity_block
+    except ImportError:
+        pass
+    else:
+        founded = False
+        try:
+            founded = genesis_performed()
+        except Exception as e:
+            logger.debug("Seira founded-check failed; using SOUL.md path: %s", e)
+        if founded:
+            try:
+                return render_identity_block()
+            except SeiraHaltedError:
+                raise  # Art. 32.3 — a halted Seira does not converse.
+            except SeiraCoreError as e:
+                # Anything short of a halt: log loudly, degrade to SOUL.md
+                # so the operator sees a broken render without the fork
+                # silently impersonating her with the fallback identity.
+                logger.error(
+                    "Seira identity render failed (falling back to SOUL.md): %s", e)
     try:
         from hermes_cli.config import ensure_hermes_home
         ensure_hermes_home()
