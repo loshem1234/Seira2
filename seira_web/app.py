@@ -515,6 +515,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
         eyeballing without SSH."""
         from seira_core.tenancy import tripwire_all
         from seira_web.backup import list_backups
+        from seira_web.r2 import r2_configured
         results = tripwire_all()
         halted = [t for t, r in results.items() if r.get("halted")]
         status_code = 503 if halted else 200
@@ -527,6 +528,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
                           "latest": daily[0]["mtime"] if daily else None},
                  "monthly": {"count": len(monthly),
                             "latest": monthly[0]["mtime"] if monthly else None},
+                 "r2_configured": r2_configured(),
              }},
             status_code=status_code)
 

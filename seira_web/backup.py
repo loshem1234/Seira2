@@ -114,6 +114,21 @@ def create_backup(kind: str) -> Dict[str, Any]:
         "size_bytes": archive_path.stat().st_size, "ts": _now().isoformat(),
     }
     prune_backups(kind)
+
+    # R2 shipping is additive: the local backup has already succeeded
+    # and been recorded above by this point. A network/credential
+    # failure here must not make create_backup() look like it failed —
+    # the caller (the background loop) logs this, it doesn't raise.
+    from seira_web.r2 import r2_configured, ship, R2Error
+    if r2_configured():
+        try:
+            ship_result = ship(archive_path, kind)
+            result["r2"] = {"shipped": True, **ship_result}
+        except R2Error as e:
+            result["r2"] = {"shipped": False, "error": str(e)}
+    else:
+        result["r2"] = {"shipped": False, "reason": "not configured"}
+
     return result
 
 

@@ -51,6 +51,11 @@ def _backup_tick() -> None:
             if result is not None:
                 logger.info("Seira backup: created %s backup (%s, %d bytes).",
                            kind, result["path"], result["size_bytes"])
+                r2 = result.get("r2", {})
+                if r2.get("shipped"):
+                    logger.info("Seira backup: shipped to R2 (%s).", r2.get("uploaded_key"))
+                elif r2.get("reason") != "not configured":
+                    logger.error("Seira backup: R2 shipping failed: %s", r2.get("error"))
         except Exception as e:  # a backup failure must never break the loop
             logger.error("Seira %s backup failed: %s", kind, e)
 
