@@ -15,6 +15,6 @@
     <button type="submit">{{ 'Create account' if mode == 'signup' else 'Log in' }}</button>
   </form>
   <p class="muted">{% if mode == 'signup' %}Already founded? <a href="/login">Log in</a>
-  {% else %}New here? <a href="/signup">Create an account</a>{% endif %}</p>
+  {% elif signups_enabled %}New here? <a href="/signup">Create an account</a>{% endif %}</p>
 </div>
 {% endblock %}
