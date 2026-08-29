@@ -791,3 +791,57 @@ API call fires.** Tested explicitly — the (fake, in tests; real,
 in production) client's call log stays empty when a named reference
 doesn't exist, rather than silently generating without it or wasting
 a paid request on a request that was going to fail anyway.
+
+## Backups and Sidebar Management
+
+**D103. Backups protect against drift/defect via rollback, honestly
+scoped to what they actually guarantee.** Written to the same volume
+by default — protects against a bad ratification or corrupted write
+(roll back to yesterday's or last month's snapshot), NOT against
+losing the volume itself. True disaster recovery means shipping
+off-box; the module is architected with a single clear hook for an R2
+push later, not built by default, so today's guarantee isn't
+overstated.
+
+**D104. One background thread, not a second service — the same lesson
+as D45, applied again on purpose.** Backup checks extend the existing
+tripwire loop's tick rather than spawning a new thread or (worse) a
+second Railway service that couldn't see the volume anyway.
+
+**D105. A real bug caught by the tests, twice, before shipping.**
+First: second-resolution timestamps collided on rapid successive
+backups, silently overwriting the previous archive — caught by a test
+that created 5 backups in a loop. Fixed with microsecond precision.
+Second: the retention-pruning test then revealed that filesystem
+mtime resolution could still be coarser than that creation rate,
+making `list_backups`'s original mtime-based sort order unreliable
+for near-simultaneous files — fixed by sorting on the filename's
+encoded timestamp instead, which doesn't depend on the filesystem's
+mtime granularity at all. Neither bug would affect the real daily/
+monthly schedule (backups a day or a month apart never collide) but
+both would have silently corrupted any deliberate on-demand backup
+taken in quick succession — exactly the moment someone doing something
+risky (before a big ratification, say) would reach for one.
+
+**D106. Restore is a deliberate, hand-run act — not a UI button.**
+Same discipline as ratification: a function (`restore_backup`),
+documented, refusing to silently overwrite an existing non-empty
+target. Restoring is rare and high-stakes; it shouldn't be one
+accidental tap away.
+
+**D107. "Delete" archives — it does not destroy.** A conversation's
+transcript is real history the same way a message is; the Art. 23
+principle already governing edit/regenerate (supersede, never erase)
+now governs the conversation list too. Proven directly: after
+archiving, the conversation disappears from the sidebar and the
+console won't show it, but its actual JSONL record — the real
+message that was sent — is still there, verified by reading it back
+from disk after the "delete."
+
+**D108. No native blocking dialogs anywhere in the new UI.** Rename
+uses an inline text input, not `prompt()`; archive uses a two-tap
+confirm (tap once to arm, tap again within 3 seconds to confirm), not
+`confirm()`. Both `prompt()` and `confirm()` block the page and have
+already caused a real, confirmed hang on mobile once in this project
+(the image-tagging dialog); the pattern is now avoided by policy, not
+just in the one place that broke.

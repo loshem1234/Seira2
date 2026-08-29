@@ -252,3 +252,29 @@ No per-message UI control remains. `SEIRA_WEB_SEARCH_ENABLED` (default
 control, incident response). Per-tenant or per-conversation limits, if
 ever needed, would be a separate future control, not a revival of the
 old checkbox.
+
+## 17. Backups
+
+Automatic: daily (7 kept) and monthly (12 kept), written to
+`SEIRA_BACKUP_ROOT` (default `~/.seira-backups`) via the same
+background thread as the tripwire — no extra Railway service needed.
+Check status anytime at `GET /healthz` (backup counts and latest
+timestamps, alongside tenant health).
+
+Manual, on-demand backup (e.g. before something risky):
+
+    python -c "from seira_web.backup import create_backup; \
+               print(create_backup('daily'))"
+
+Restore (deliberate, hand-run, never a UI button):
+
+    python -c "from seira_web.backup import restore_backup; \
+               print(restore_backup('/path/to/seira-backup-....tar.gz'))"
+
+Extracts into a clearly-named sibling directory rather than overwriting
+live data; review the restored files and swap them in by hand.
+
+**Off-box shipping (R2) is not built yet.** Today's backups protect
+against drift/defect via rollback, not against losing the volume
+itself. Adding an R2 push after each `create_backup()` call is the
+natural next step whenever that's wanted.
