@@ -163,11 +163,15 @@ def test_violet_palette_is_deeper_than_the_previous_baseline():
     assert hex_to_lum(m.group(1)) < hex_to_lum("#120820")
 
 
-def test_sidebar_close_on_chat_click_has_a_redundant_binding():
-    """The original single capture-phase listener on #chatcol should
-    already suffice; this guards that a fail-safe binding on #msgs
-    exists too, per the fix made after a reported regression."""
-    assert CHAT_HTML.count("setSidebar(false)") >= 2
+def test_sidebar_closes_via_robust_click_outside_pattern():
+    """Replaced the earlier capture-phase #chatcol/#msgs listeners
+    (which should have worked but didn't reliably in practice) with a
+    single document-level click-outside listener using closest()
+    containment — the standard, most robust version of this pattern,
+    independent of DOM nesting/ordering."""
+    assert "document.addEventListener('click'" in CHAT_HTML
+    assert "e.target.closest('#sidebar')" in CHAT_HTML
+    assert "setSidebar(false)" in CHAT_HTML
 
 
 def test_hermes_session_emits_reasoning_and_deltas():
