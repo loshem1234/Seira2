@@ -136,6 +136,21 @@ a:focus, button:focus, input:focus, textarea:focus {
 .convo:hover { border-color: var(--edge); color: var(--text); }
 .convo.active { border-color: var(--gold-dim); color: var(--gold-bright);
   background: rgba(212,175,55,.06); }
+.convo-row { display: flex; align-items: center; gap: .25rem; margin-bottom: .1rem;
+  border-radius: 3px; }
+.convo-row .convo { flex: 1; min-width: 0; margin-bottom: 0; border: none; }
+.convo-row.active .convo { border-color: var(--gold-dim); color: var(--gold-bright);
+  background: rgba(212,175,55,.06); }
+.convo-actions { display: flex; gap: .15rem; opacity: 0; transition: opacity .15s;
+  flex-shrink: 0; padding-right: .3rem; }
+.convo-row:hover .convo-actions, .convo-row:focus-within .convo-actions { opacity: 1; }
+.convoicon { background: none; border: none; color: var(--gold-dim);
+  cursor: pointer; padding: .3rem; border-radius: 3px; display: grid; place-items: center; }
+.convoicon:hover { color: var(--gold-bright); background: rgba(212,175,55,.1); }
+.convoicon.act-archive.confirming { color: var(--rust); }
+.convo-rename-input { width: 100%; background: var(--void); border: 1px solid var(--gold-dim);
+  color: var(--text); padding: .45rem .6rem; font: inherit; font-size: .92rem;
+  border-radius: 3px; }
 .newchat { width: 100%; margin: 0 0 1rem; }
 
 .chatcol { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
