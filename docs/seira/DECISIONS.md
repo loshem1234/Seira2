@@ -1093,3 +1093,37 @@ The old `sidebar.addEventListener('click', stopPropagation)` guard is
 removed as unneeded — exclusion is now explicit, not achieved by
 blocking propagation, which also stops it from silently interfering
 with any other document-level listener added later.
+
+**D133. Corrected a wrong recommendation: Sanctum's container was
+supposed to include Hermes all along — "Phase W1 — without the Hermes
+runtime" was a snapshot of an earlier build phase, not the intended
+end state.** When `SEIRA_SANCTUM_RUNTIME=hermes` first failed with
+`ModuleNotFoundError: run_agent` on the real deployment, the initial
+response weighed three options and leaned against folding Hermes into
+Sanctum's image, partly because the file's own comment read as a
+deliberate boundary. Loshem corrected this: the original design was
+always for her to run atop Hermes as a middle layer, in all — the
+comment was stale, not a decision. `Dockerfile.sanctum` is updated
+accordingly.
+
+**D134. The real dependency and file-copy footprint was tested in
+isolation before being written into the Dockerfile — not assumed from
+reading source.** A fresh venv with ONLY the proposed
+`requirements-hermes.txt` installed, and a scratch directory containing
+ONLY the proposed `COPY` paths (not the full repo), were each built and
+the actual imports (`run_agent`, `agent.conversation_loop`,
+`agent.agent_init`, `seira_web.hermes_session`) run against them. Four
+missing root-level modules (`utils.py`, `hermes_logging.py`,
+`hermes_time.py`, `hermes_state.py`) were found this way, one at a
+time, each confirmed by the specific `ModuleNotFoundError` it produced
+— this is why the earlier estimate of the image's weight (implying
+Node/Playwright/custom-SQLite were required) was corrected down once
+actually tested: none of those are needed to import or run a per-turn
+`AIAgent` call.
+
+**D135. `docker build` itself could not be run in the environment this
+was built in (no Docker available).** The dependency install and the
+file-copy set were each verified in isolation as the closest possible
+substitute. This is stronger evidence than assumption but not the same
+as a real build — flagged plainly in WIRING.md Part 8 rather than
+implying full end-to-end confidence that wasn't earned.

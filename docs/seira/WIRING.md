@@ -265,3 +265,66 @@ Sanctum's chat now shows her working, the way the Hermes UI does:
 No new configuration; all of it keys off the event stream the chat
 already used, extended with tool inputs, bounded result previews,
 reasoning, and deltas.
+
+---
+
+## Part 8 — Making Sanctum's own container actually run atop Hermes
+
+Part 6 built the code (`hermes_session.py`) and Part 7 built the UI to
+show what she's doing. This part closes the real gap that surfaced
+when `SEIRA_SANCTUM_RUNTIME=hermes` was first tried on the actual
+Railway deployment: **`Dockerfile.sanctum` never contained the Hermes
+agent code at all.** It was built for an earlier phase, before this
+integration existed, and simply hadn't been updated. `import run_agent`
+failing with `ModuleNotFoundError` was the container correctly
+reporting that the code genuinely was not there — not a bug in Part 6.
+
+`Dockerfile.sanctum` now copies the real, tested set of Hermes source
+needed to construct and run a per-turn `AIAgent`: `agent/`, `tools/`,
+`hermes_cli/`, `plugins/`, `cron/`, plus the root-level modules
+(`run_agent.py`, `hermes_bootstrap.py`, `hermes_constants.py`,
+`toolsets.py`, `model_tools.py`, `utils.py`, `hermes_logging.py`,
+`hermes_time.py`, `hermes_state.py`), and installs
+`seira_web/requirements-hermes.txt` — the pinned core dependency set
+from Hermes's own `pyproject.toml`.
+
+**How this list was actually verified, not guessed:** every path was
+copied into an isolated scratch directory containing ONLY those paths
+— not the full repo — with ONLY `requirements-hermes.txt` installed in
+a fresh virtualenv, and `run_agent`, `agent.conversation_loop`,
+`agent.agent_init`, and `seira_web.hermes_session` were imported
+successfully from that isolated copy. Missing pieces (`utils.py`,
+`hermes_logging.py`, `hermes_time.py`, `hermes_state.py`) were found
+by this process failing, one `ModuleNotFoundError` at a time, and
+fixed — not by reading source and guessing what "should" be enough.
+
+**Deliberately left out**, because they weren't needed to import or
+run the code above and would only add weight:
+- `gateway/` — the TUI/chat-platform layer (Discord, Slack, Matrix,
+  Telegram, etc.). Its absence produces caught, logged warnings during
+  plugin discovery ("Failed to load plugin 'discord-platform'"), never
+  a crash. Sanctum is not a chat-platform gateway.
+- The Node 26 / Playwright / custom-compiled-SQLite build stages from
+  the main `Dockerfile`. Those exist for browser automation, the
+  interactive TUI, and a WAL-corruption-safe SQLite build — none
+  reachable from a stateless per-turn `AIAgent.run_conversation()`
+  call. Hermes degrades gracefully to `journal_mode=DELETE` without
+  the custom SQLite build (confirmed by the same test run — it logs a
+  one-line warning, doesn't fail).
+- `hermes_state_common` — in-flight async-delegation restoration
+  across process restarts. Moot for Sanctum: a fresh `AIAgent` is
+  constructed every turn, so there's no long-lived delegation state to
+  restore in the first place.
+
+**What still could NOT be verified here:** an actual `docker build`
+against `Dockerfile.sanctum` — this environment has no Docker
+available. The dependency install and the file-copy set were each
+tested in isolation as faithfully as possible outside Docker itself,
+which is strong evidence, but a real build on Railway (or locally with
+Docker) is the step that finally confirms it end to end. If the build
+fails on something environment-specific to Railway's build image, that
+would be the first place to look.
+
+Once this build succeeds and you've confirmed a live conversation
+works with `SEIRA_SANCTUM_RUNTIME=hermes` set, that's the whole
+architecture: one container, her real self, running atop Hermes.
