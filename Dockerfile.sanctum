@@ -60,6 +60,15 @@ COPY run_agent.py hermes_bootstrap.py hermes_constants.py toolsets.py \
      model_tools.py utils.py hermes_logging.py hermes_time.py \
      hermes_state.py ./
 
+# Her governance/tool config — memory.provider: seira-psyche and
+# plugins.enabled: [seira_governance] — baked in, not on the volume.
+# Nothing in Sanctum's per-turn AIAgent path writes to config.yaml, so
+# a read-only file shipped with the image is simpler and can't go
+# silently missing the way an unset/empty HERMES_HOME volume path can.
+# Set HERMES_HOME to exactly this path in your Railway service variables.
+COPY seira_web/hermes-config/ /app/hermes-config/
+ENV HERMES_HOME=/app/hermes-config
+
 # State lives on the mounted volume, never in the image:
 #   SEIRA_TENANTS_ROOT=/data/tenants  SEIRA_PLATFORM_ROOT=/data/platform
 EXPOSE 8000
