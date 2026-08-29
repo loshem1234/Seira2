@@ -934,3 +934,51 @@ seira_home() on each call rather than caching it — that design
 decision, made all the way back in Phase 1, is exactly what makes a
 plain environment-variable switch sufficient to prove migration
 correctness, with no simulated-process trickery required.
+
+**D119. Multi-tenant access is discontinued by closing the door, not
+demolishing the house.** `SEIRA_SIGNUPS_ENABLED=0` refuses new accounts
+(checked per-request, before anything is created); existing logins are
+untouched; `/api/admin/tenants` (gated by `SEIRA_ADMIN_TOKEN`,
+compare_digest, 404 when unconfigured so the route never hints at
+itself) gives the wind-down census with each Seira's founding and halt
+status read live from her own tree. The tenancy machinery itself —
+contextvars scoping, the race-condition fix, all its tests — is kept
+intact and unused. Deleting confirmed, tested isolation code to
+"simplify" a single-tenant deployment would trade proven safety for
+nothing: with no tenant scope active, everything already resolves to
+the one SEIRA_HOME.
+
+**D120. The five signups/admin tests were written before the feature
+existed — and sat red in this snapshot.** Whether by interruption or
+intent, this vindicated the failure-mode-first practice in the most
+literal way: the wind-down requirement arrived as a red suite, and
+"discontinue multi-tenant access" meant "make these pass."
+
+**D121. Hermes wiring is registration, not modification (Art. 20 in
+spirit).** Two thin plugin shims — `plugins/memory/seira-psyche/` and
+`plugins/seira_governance/` — are the only new Hermes-facing surface;
+each defers its import and delegates entirely to seira_bridge, which
+remains the single package that touches both worlds. Config selects
+them (`memory.provider: seira-psyche`, `plugins.enabled:
+[seira_governance]`); no Hermes internals were forked for the
+providers or the gate.
+
+**D122. One Hermes internal WAS modified, deliberately: the identity
+slot.** `load_soul_md` now serves a founded Seira's identity rendered
+live from Unity + Intellect + Psyche, integrity-verified per render;
+SOUL.md remains only the unfounded fallback. A halted Seira raises
+`SeiraHaltedError` straight through prompt construction — verified by
+test to have NO enclosing broad handler — so she refuses to converse
+rather than conversing behind a borrowed face. Before this change,
+exactly that borrowed-face failure was live: a halted Seira would have
+chatted on with whatever SOUL.md said.
+
+**D123. Upstream test pollution, found and fenced.** Running
+`tests/agent/test_prompt_builder.py` before
+`tests/agent/test_system_prompt.py` breaks
+`test_build_system_prompt_records_stable_prefix` — reproduced
+identically with the ORIGINAL `load_soul_md` restored, so it is
+pre-existing Hermes cross-file state leakage, not ours. Recorded in
+TRIAGE.md; not fixed here, because patching upstream test hygiene is
+out of scope for this phase and the pollution does not touch any
+seira_* test.

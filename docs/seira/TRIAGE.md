@@ -73,3 +73,17 @@ MIT permits everything planned. Obligations honored by keeping `LICENSE`
 (Nous Research copyright) in the tree and adding `NOTICE` (included in this
 delivery). No attribution in the product is required; keeping the license
 file is.
+
+---
+
+## Known upstream test-isolation defect (recorded during Hermes wiring)
+
+`tests/agent/test_prompt_builder.py` followed by
+`tests/agent/test_system_prompt.py` in one pytest process fails
+`test_build_system_prompt_records_stable_prefix`
+(AttributeError at agent/system_prompt.py:571); each file passes alone.
+A/B-verified against the pre-wiring `load_soul_md`: the failure is
+identical with original code, i.e. pre-existing upstream cross-file
+state pollution, not introduced by the Seira identity-slot change
+(D122–D123). Revisit if/when upstream test hygiene is raided; harmless
+to seira_* suites.
