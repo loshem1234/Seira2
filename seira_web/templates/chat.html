@@ -134,6 +134,14 @@ function addDownloadCard(filename, path) {
     download>&#8681; ${esc(filename)}</a>`));
   scrollEnd();
 }
+function addGeneratedImage(imgId, tag, usedRefs) {
+  const refNote = usedRefs && usedRefs.length
+    ? ` (referencing: ${usedRefs.join(', ')})` : '';
+  const node = el(`<div class="msg assistant"><div class="who">Seira — generated</div>
+    <img class="chatimg" src="/api/images/${esc(imgId)}" alt="${esc(tag)}">
+    <span class="body">tag: ${esc(tag)}${esc(refNote)}</span></div>`);
+  msgs.appendChild(node); scrollEnd();
+}
 let activityEl = null;
 function setActivity(label) {
   if (!activityEl) { activityEl = el(
@@ -170,6 +178,9 @@ async function stream(body) {
           setActivity('Thinking'); }
         else if (ev.event === 'file_created') {
           addDownloadCard(ev.filename || 'file', ev.download_path);
+        }
+        else if (ev.event === 'image_created') {
+          addGeneratedImage(ev.img_id, ev.tag, ev.used_references);
         }
         else if (ev.event === 'reply') { clearActivity();
           addAssistant(ev.text, ev.assistant_id); }
