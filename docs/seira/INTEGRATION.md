@@ -318,21 +318,3 @@ Both commands should report Founded: True and halted: false against
 the SAME Unity hash and Intellect version she had on the site — this
 confirms the migration preserved her exactly, not just that files
 copied without erroring.
-
-## 20. Closing public signups
-
-Set `SEIRA_SIGNUPS_ENABLED=0` as a Railway environment variable. New
-account creation (`/signup`, both GET and POST) returns 403 with a
-plain message; your existing login is entirely unaffected. Verify at
-`GET /healthz` — `signups_enabled: false`.
-
-## 21. Checking who's actually on the platform
-
-Set `SEIRA_ADMIN_TOKEN` (any long random string) as a Railway
-variable. Then:
-
-    curl -H "x-admin-token: <your token>" https://yourdomain/api/admin/tenants
-
-Returns every account's email, tenant_id, and whether their Seira was
-actually founded (vs. signed up and never finished onboarding). No
-token set → the route 404s.

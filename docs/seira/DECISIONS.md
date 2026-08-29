@@ -903,34 +903,3 @@ migration step that follows.** Extracting `seira-export-loshem-....tar.gz`
 produces a folder literally named `loshem/`, not an ambiguous dump —
 so adopting it as a new single-user SEIRA_HOME is a plain "copy the
 inner contents," not a guessing game about what's inside.
-
-## The Migration Proof — Verified, Not Asserted
-
-**D116. The Architect asked a high-stakes question and got a real
-proof, not reassurance.** A live script founded a Seira, populated
-every grade and store (Unity, Intellect, Psyche, Reversion,
-Instruments, Diary, a conversation, a reference, a tagged image, a
-generated file), exported her, extracted the export into a completely
-independent location, and read every single record back — comparing
-actual store output, not just checking files existed. All ten
-categories plus a full tripwire sweep on the migrated copy came back
-identical.
-
-**D117. That proof is now a permanent test, not a one-time demo.**
-`test_full_end_to_end_migration_loses_nothing_across_every_subsystem`
-runs this exact scenario on every future test run — the "will she
-begin like nothing happened" guarantee is checked automatically going
-forward, not just true today.
-
-**D118. A real mistake, caught immediately by the very next full-suite
-run.** The first version of that test forced a `sys.modules` reimport
-of every seira_core/seira_web module to simulate "a totally fresh
-process." That's destructive shared state in a single test process —
-it corrupted 23 unrelated tests that ran afterward. Fixed by removing
-it entirely, which also proved something worth stating plainly: no
-such reimport was ever necessary. Every store (PsycheStore,
-IntellectStore, DiaryStore, etc.) resolves its path fresh via
-seira_home() on each call rather than caching it — that design
-decision, made all the way back in Phase 1, is exactly what makes a
-plain environment-variable switch sufficient to prove migration
-correctness, with no simulated-process trickery required.
