@@ -194,6 +194,75 @@ a:focus, button:focus, input:focus, textarea:focus {
 @keyframes breathe { 0%,100% { opacity: .25; transform: scale(.8); }
   50% { opacity: 1; transform: scale(1.15); } }
 
+/* ── The activity feed: tool cards, terminal lines, delegation ── */
+.toolcard { align-self: flex-start; max-width: 74ch; width: fit-content;
+  min-width: 16rem; border: 1px solid var(--edge); border-radius: 6px;
+  background: rgba(27,14,48,.5); padding: .45rem .8rem; font-size: .8rem; }
+.toolcard .toolhead { display: flex; align-items: center; gap: .5rem;
+  color: var(--sage); font-variant: small-caps; letter-spacing: .12em; }
+.toolcard .toolicon { color: var(--gold); }
+.toolcard .toolsub { color: var(--text-dim); font-family: ui-monospace, monospace;
+  font-size: .74rem; margin-top: .25rem; overflow-wrap: anywhere; }
+.toolcard.term { background: rgba(6,3,12,.85); border-color: #2A1650; }
+.toolcard.term .termline { margin: .35rem 0 0; color: var(--gold-bright);
+  font-family: ui-monospace, monospace; font-size: .78rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.toolcard.delegate { border-left: 2px solid var(--gold); }
+.toolcard .toolresult { margin-top: .4rem; }
+.toolcard .toolresult summary { cursor: pointer; color: var(--gold-dim);
+  font-variant: small-caps; letter-spacing: .1em; font-size: .72rem; }
+.toolcard .toolresult summary:hover { color: var(--gold-bright); }
+.toolcard .toolresult pre { margin: .35rem 0 0; max-height: 14rem;
+  overflow: auto; color: var(--text-dim);
+  font-family: ui-monospace, monospace; font-size: .72rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── Her live reasoning ── */
+.reasoning { align-self: flex-start; max-width: 74ch;
+  border: 1px dashed var(--edge); border-radius: 6px;
+  padding: .4rem .8rem; background: rgba(27,14,48,.35); }
+.reasoning summary { cursor: pointer; display: flex; align-items: center;
+  gap: .55rem; color: var(--gold-dim); font-variant: small-caps;
+  letter-spacing: .14em; font-size: .78rem; list-style: none; }
+.reasoning summary::-webkit-details-marker { display: none; }
+.reasoning summary .orb { width: .45rem; height: .45rem; border-radius: 50%;
+  background: var(--gold); animation: breathe 1.4s ease-in-out infinite; }
+.reasoning summary .orb.still { animation: none; opacity: .35; }
+.reasoning .reasonbody { margin-top: .4rem; color: var(--text-dim);
+  font-size: .82rem; font-style: italic; white-space: pre-wrap;
+  overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
+
+/* ── Code in copy boxes ── */
+.msg .codeblock { margin: .55rem 0; border: 1px solid var(--edge);
+  border-radius: 6px; background: rgba(6,3,12,.85); overflow: hidden;
+  white-space: normal; }
+.msg .codebar { display: flex; justify-content: space-between;
+  align-items: center; padding: .2rem .7rem;
+  background: rgba(42,22,80,.5); border-bottom: 1px solid var(--edge); }
+.msg .codelang { color: var(--gold-dim); font-variant: small-caps;
+  letter-spacing: .12em; font-size: .7rem; }
+.msg .copycode { background: none; border: none; color: var(--gold-dim);
+  cursor: pointer; font-size: .72rem; font-family: inherit;
+  letter-spacing: .08em; padding: 0; }
+.msg .copycode:hover { color: var(--gold-bright); }
+.msg .codeblock pre { margin: 0; padding: .6rem .8rem; overflow-x: auto; }
+.msg .codeblock code { font-family: ui-monospace, monospace;
+  font-size: .8rem; color: var(--text); white-space: pre; }
+.msg .inlinecode { font-family: ui-monospace, monospace; font-size: .85em;
+  background: rgba(42,22,80,.55); border: 1px solid var(--edge);
+  border-radius: 3px; padding: 0 .3rem; }
+
+/* ── Streaming reply, generated files ── */
+.msg.assistant.streaming { border-left-color: var(--gold-dim); }
+.msg.assistant.streaming .body::after { content: "▋"; color: var(--gold);
+  animation: breathe 1s ease-in-out infinite; }
+.toolchip.filecard { gap: .8rem; }
+.toolchip.filecard .filelink { color: inherit; }
+.toolchip.filecard .openbtn { color: var(--gold-dim); border: 1px solid var(--gold-dim);
+  border-radius: 999px; padding: 0 .55rem; font-size: .72rem; }
+.toolchip.filecard .openbtn:hover { color: var(--void); background: var(--gold);
+  border-color: var(--gold); }
+
 /* Composer */
 .composer { border-top: 1px solid var(--edge); padding: .9rem 1.4rem 1.1rem;
   background: rgba(18,8,32,.85); flex-shrink: 0; }
@@ -298,5 +367,6 @@ form.stack button { margin-top: 1rem; }
 .halt h1 { color: var(--rust); font-variant: small-caps; letter-spacing: .3em;
   font-family: 'Cinzel Decorative', serif; }
 @media (prefers-reduced-motion: reduce) {
-  .sigil-pulse, .activity .orb { animation: none !important; }
+  .sigil-pulse, .activity .orb, .reasoning summary .orb,
+  .msg.assistant.streaming .body::after { animation: none !important; }
   * { transition: none !important; } }
