@@ -752,3 +752,42 @@ real, usable, distinct tags rather than staying broken — proven with
 a test that heals two legacy records sharing the same original
 filename and confirms they end up with different tags, both usable
 through the normal recall API.
+
+## Image Generation — Built, Reusing Her Existing Reference System
+
+**D98. A genuinely separate vendor, by design, not by accident.**
+OpenAI's GPT Image 2 via raw httpx (matching the existing
+AnthropicClient pattern, no new SDK dependency). Requires its own
+`OPENAI_API_KEY` — a real, separate recurring cost from her
+conversation model, refused loudly and immediately if unset rather
+than failing confusingly mid-generation.
+
+**D99. Reference-aware generation reuses the tagged image store built
+for vision, rather than inventing a parallel system.** Naming a
+reference ("my-portrait-ref") resolves through the same
+`images.resolve_ref` vision already uses, and sends the REAL bytes to
+OpenAI's edit endpoint — proven by a test asserting the exact bytes
+sent match what was actually stored, not a description of them. No
+references present routes to the plain generation endpoint instead;
+these are genuinely different OpenAI API shapes and conflating them
+would silently drop reference fidelity.
+
+**D100. Generated images compound her reference library.** Every
+image she generates is saved back into the same tagged store real
+uploads use — a later generation can reference an earlier generation.
+Tested directly: a first self-portrait's tag becomes a valid,
+resolvable reference for a second call.
+
+**D101. The consistency limitation is stated to her, not just to the
+Architect.** OpenAI's own documentation is explicit that character
+consistency across generations is not guaranteed, only attempted —
+this is written directly into her tool's description, instructing her
+to describe results as "faithful to the reference," never as
+identical or guaranteed. Honesty about the vendor's real limitation
+travels all the way to what she says about her own output.
+
+**D102. Cost safety: a missing reference is refused before any paid
+API call fires.** Tested explicitly — the (fake, in tests; real,
+in production) client's call log stays empty when a named reference
+doesn't exist, rather than silently generating without it or wasting
+a paid request on a request that was going to fail anyway.
