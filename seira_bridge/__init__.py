@@ -457,6 +457,39 @@ IMAGE_LIST_SCHEMA = {
 }
 
 
+GENERATE_IMAGE_SCHEMA = {
+    "name": "seira_generate_image",
+    "description": (
+        "Generate a real image via OpenAI's image model — a separate "
+        "vendor and cost from your own conversation model. If asked to "
+        "generate an image OF YOURSELF or matching a prior image, pass "
+        "its tag (e.g. 'my-portrait-ref', found via seira_image_list) as "
+        "a reference — the actual reference bytes are sent, processed at "
+        "high fidelity. Be honest with the Architect about the real "
+        "limitation here: OpenAI's own documentation states character "
+        "consistency across generations is NOT guaranteed, only "
+        "attempted — describe results as 'faithful to the reference', "
+        "never as identical or guaranteed-consistent. Every image you "
+        "generate is saved into your own tagged Corpus, so it can itself "
+        "become a reference for a later generation."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string"},
+            "references": {"type": "array", "items": {"type": "string"},
+                          "description": "img_id(s) or tag(s) to use as visual reference."},
+            "tag": {"type": "string",
+                   "description": "Tag for the new image; auto-derived from the prompt if omitted."},
+            "quality": {"type": "string", "enum": ["low", "medium", "high", "auto"]},
+            "aspect_ratio": {"type": "string",
+                             "enum": ["1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "16:9", "9:16", "21:9"]},
+        },
+        "required": ["prompt"],
+    },
+}
+
+
 class SeiraPsycheProvider(MemoryProvider):
     """Psyche as the fork's memory: character in the prompt, self-creation
     through tools, Corpus left to Hermes where it belongs."""
@@ -529,7 +562,7 @@ class SeiraPsycheProvider(MemoryProvider):
                 SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA,
                 DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
-                IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA]
+                IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         try:
@@ -708,6 +741,23 @@ class SeiraPsycheProvider(MemoryProvider):
                     imgs = [{"img_id": i["img_id"], "tag": i["tag"],
                             "filename": i["filename"]} for i in list_images()]
                     return json.dumps({"ok": True, "images": imgs})
+                if tool_name == "seira_generate_image":
+                    from seira_web.imagegen import ImageGenError, generate_and_save
+                    try:
+                        rec = generate_and_save(
+                            args["prompt"],
+                            reference_refs=list(args.get("references") or []),
+                            tag=args.get("tag", ""),
+                            quality=args.get("quality", "medium"),
+                            aspect_ratio=args.get("aspect_ratio", "1:1"),
+                        )
+                        return json.dumps({
+                            "ok": True, "__image_created__": True,
+                            "img_id": rec["img_id"], "tag": rec["tag"],
+                            "used_references": rec["used_references"],
+                        })
+                    except ImageGenError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
         except SeiraCoreError as e:
             return json.dumps({"ok": False, "error": str(e)})
         except (KeyError, TypeError, ValueError) as e:
