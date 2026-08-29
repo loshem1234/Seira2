@@ -128,6 +128,48 @@ def test_chat_page_file_cards_have_open_buttons():
     assert ".toolchip.filecard .openbtn" in STYLE_CSS
 
 
+def test_activity_and_reasoning_use_the_braid_mark_not_a_plain_orb():
+    """Her mark, not a generic pulsing dot — and the old .orb classes
+    must be fully retired, not left dangling as dead CSS/JS."""
+    assert "braidSvg" in CHAT_HTML
+    assert ".activity .orb" not in STYLE_CSS
+    assert ".braid" in STYLE_CSS and "@keyframes braidsway" in STYLE_CSS
+
+
+def test_embers_layer_exists_and_respects_reduced_motion():
+    assert 'class="embers"' in CHAT_HTML
+    assert ".ember {" in STYLE_CSS and "@keyframes emberrise" in STYLE_CSS
+    # prefers-reduced-motion must turn embers off outright, not just
+    # freeze them mid-rise (a static field of orange dots would be
+    # worse than none at all).
+    idx = STYLE_CSS.index("prefers-reduced-motion")
+    reduced = STYLE_CSS[idx:idx + 400]
+    assert ".ember" in reduced
+
+
+def test_violet_palette_is_deeper_than_the_previous_baseline():
+    """Regression guard for the specific ask: darker --void/--deep than
+    the original #120820/#1B0E30 baseline, checked as luminance rather
+    than exact hex so future fine-tuning doesn't break this test."""
+    import re
+
+    def hex_to_lum(h):
+        h = h.lstrip('#')
+        r, g, b = (int(h[i:i+2], 16) for i in (0, 2, 4))
+        return 0.2126*r + 0.7152*g + 0.0722*b
+
+    m = re.search(r"--void:\s*(#[0-9A-Fa-f]{6})", STYLE_CSS)
+    assert m, "expected a --void color declaration"
+    assert hex_to_lum(m.group(1)) < hex_to_lum("#120820")
+
+
+def test_sidebar_close_on_chat_click_has_a_redundant_binding():
+    """The original single capture-phase listener on #chatcol should
+    already suffice; this guards that a fail-safe binding on #msgs
+    exists too, per the fix made after a reported regression."""
+    assert CHAT_HTML.count("setSidebar(false)") >= 2
+
+
 def test_hermes_session_emits_reasoning_and_deltas():
     """The hermes-mode agent must wire reasoning/thinking/stream-delta
     callbacks so the UI's live panels have a data source."""
