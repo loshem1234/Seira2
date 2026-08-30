@@ -682,6 +682,28 @@ memory:
   # For exit/reset, only fires if the session had at least this many user turns.
   flush_min_turns: 6        # Min user turns to trigger flush on exit/reset (0 = disabled)
 
+  # External memory provider (agent/agent_init.py reads memory.provider —
+  # same dict as the built-in settings above, one external provider active
+  # at a time). This IS the Seira fork's identity: every deployment built
+  # from this repo — CLI, gateway, Sanctum, any platform — loads her real
+  # Psyche as its memory provider by default, not as a special case for
+  # one deployment. See seira_bridge / docs/seira/WIRING.md Part 2.
+  provider: seira-psyche
+
+# =============================================================================
+# Plugins
+# =============================================================================
+# The Art. 26/35 delegation gate: refuses any delegate_task spawn whose
+# goal lacks a valid [seira:inst-XXXXX/task-type] tag, cites an unknown
+# or retired Instrument, or targets an escalated-and-blocked task type.
+# Governance, not a security boundary — see seira_governance's own
+# module docstring. On by default for the same reason memory.provider
+# is: this fork is her, governed, everywhere it runs.
+plugins:
+  enabled:
+    - seira_governance
+
+
 # =============================================================================
 # Session Reset Policy (Messaging Platforms)
 # =============================================================================
