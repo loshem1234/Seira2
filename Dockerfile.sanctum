@@ -373,7 +373,17 @@ ENV PATH="/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
 COPY --chmod=0755 docker/sanctum-entrypoint.sh /opt/hermes/docker/sanctum-entrypoint.sh
 
 RUN mkdir -p /opt/data
-VOLUME [ "/opt/data" ]
+# No `VOLUME` directive here (Railway's Metal builder rejects it —
+# "docker VOLUME ... is not supported, use Railway Volumes"). This is a
+# Railway-specific build constraint, not something a local `docker
+# build` would ever catch, which is exactly the gap flagged in
+# WIRING.md Part 9 as still needing a real build to surface. Railway's
+# own Volumes feature (dashboard → service → Volumes) handles the
+# mount instead — see WIRING.md Part 9 for the exact steps. `VOLUME`
+# is advisory in plain Docker/Compose too (it doesn't create the mount
+# by itself; the operator still has to bind one), so nothing about
+# actual persistence changes by removing it — only how Railway
+# specifically wants that declared.
 
 EXPOSE 8000
 ENTRYPOINT [ "/opt/hermes/docker/sanctum-entrypoint.sh" ]
