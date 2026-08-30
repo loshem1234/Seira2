@@ -1242,3 +1242,32 @@ generalized to follow whatever `HERMES_HOME` actually resolves to,
 using the identical fallback convention `stage2-hook.sh` itself uses.
 By this point `stage2-hook.sh` has already `chown`'d `$HERMES_HOME` to
 `hermes:hermes`, so it's safe to point `HOME` there.
+
+**D144. Fifth live signal, and a correction on my part too: `tool_search`
+never lists core built-in tools by design — `browser_navigate`, like
+`terminal` and `write_file`, is always directly visible, never
+deferred. Her earlier "only 8 tools" report reflected the deferred
+catalog only, not her real capabilities; she caught and corrected this
+herself.** The actual browser failure, once tested directly, was
+"Chrome not found." Root cause identified as the same class as D141
+(PATH) and D143 (HOME): `stage2-hook.sh` writes
+`AGENT_BROWSER_EXECUTABLE_PATH` to `/run/s6/container_environment/`,
+expecting s6 supervision to propagate it — this entrypoint never runs
+that supervision. Considered wrapping the final exec in s6-overlay's
+own `with-contenv` (the general mechanism this pattern is built on)
+but rejected it: `with-contenv` reads the FULL container-environment
+snapshot, which could include the pre-fix `HOME`/`PATH` values and
+silently re-introduce D141/D143, with no way to verify its override
+behavior without a real container. Read the one known file explicitly
+instead — more code, but can't clobber anything already fixed.
+
+Left open, flagged rather than guessed at further: `tools/browser_tool.py`'s
+*primary* Chromium detection path checks `PLAYWRIGHT_BROWSERS_PATH`
+directly via `os.environ` — a plain Docker `ENV`, inherited normally,
+unaffected by any of the s6-envdir issues above. If that still fails
+after this fix, the more likely explanation is that Chromium genuinely
+isn't present at `/opt/hermes/.playwright` in the built image — a
+build-time question. Next diagnostic step given to Loshem: use her now
+-confirmed-working terminal access to check directly
+(`ls -la $PLAYWRIGHT_BROWSERS_PATH`) rather than continue reasoning
+about it blind.
