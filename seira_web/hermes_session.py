@@ -83,8 +83,26 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
              "input": display_args, "tool_call_id": tool_call_id})
 
     def _tool_complete(tool_call_id, name, display_args, display_result):
+        # display_result can be a multimodal envelope (a dict with an
+        # embedded base64 image content block) rather than plain text —
+        # e.g. recalling a previously generated image sends the model
+        # the real image bytes so she can actually see it again. That's
+        # correct and necessary for HER turn, but blasting it unbounded
+        # through an SSE event to the browser is not: real, live
+        # failure hit 2026-08-30 — a 2.28-million-character tool_result
+        # event, hitting some downstream transport ceiling and getting
+        # truncated, for what was structurally always going to be a
+        # multi-megabyte base64 string once unrouted here. The fix
+        # isn't a new transport — it's using the summarizer Hermes
+        # already has for exactly this ("logging, previews... fall-back
+        # content for providers that don't support multipart tool
+        # messages" — agent/tool_dispatch_helpers.py's own docstring)
+        # rather than passing the raw multimodal payload through.
+        from agent.tool_dispatch_helpers import _multimodal_text_summary
+        text_result = _multimodal_text_summary(display_result)
+
         emit({"event": "tool_result", "tool": name,
-             "result": display_result, "tool_call_id": tool_call_id})
+             "result": text_result[:2000], "tool_call_id": tool_call_id})
         # chat.py's direct-mode loop translates seira_generate_image /
         # seira_create_file results into image_created/file_created SSE
         # events, which is what tells chat.html to actually render the
@@ -98,7 +116,7 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
         # no way to show them.
         if name in ("seira_generate_image", "seira_create_file"):
             try:
-                parsed = json.loads(display_result)
+                parsed = json.loads(text_result)
             except (TypeError, ValueError):
                 parsed = None
             if isinstance(parsed, dict) and parsed.get("ok"):
