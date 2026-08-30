@@ -1,49 +1,54 @@
-# CHANGESET — Browser env-var fix + a real diagnostic step for you
+# CHANGESET — Fix: generated images had nowhere to go
 
-Two files. Replaces the previous sanctum-entrypoint.sh again.
+Three files.
 
-    docker/sanctum-entrypoint.sh   — THE FIX
-    docs/seira/DECISIONS.md        — D144 appended (includes an
-                                     approach I considered and
-                                     rejected — worth reading, it's
-                                     the reasoning, not just the code)
+    tools/tool_search.py       — fixes the "found via tool_search,
+                                 rejected on call" contradiction
+    seira_web/hermes_session.py — THE MAIN FIX for your actual
+                                  question: hermes mode now surfaces
+                                  generated images and files
+    docs/seira/DECISIONS.md    — D145, D146 appended
 
-## Two things worth knowing before you apply this
+## The main answer: her images aren't lost
 
-**First — a correction, not a new bug.** "tool_search only shows 8
-tools" was never actually evidence anything was missing.
-`browser_navigate`, like `terminal` and `write_file`, is a core tool —
-always directly available, never something you search for.
-`tool_search` only ever lists the small set of optional plugin tools.
-She caught this herself and corrected it; worth knowing so the same
-false alarm doesn't come up again.
+Before applying anything: she's not making images into a void. They're
+saved to disk regardless of what the UI shows. You (or she) can view
+any already-generated image right now at:
 
-**Second — this fix addresses one real gap, but may not be the whole
-picture.** Same root cause as the last two fixes: `stage2-hook.sh`
-writes `AGENT_BROWSER_EXECUTABLE_PATH` expecting s6 supervision to
-propagate it, which this entrypoint doesn't run. Fixed by reading that
-one file directly (I deliberately did NOT use the more general
-`with-contenv` wrapper here — it risked silently undoing the HOME/PATH
-fixes from the last two rounds; see D144 for why).
+    https://<your-sanctum-host>/api/images/<img_id-or-tag>
 
-## The diagnostic step — please run this before redeploying
+Ask her to call her `seira_image_list` tool to get the img_ids/tags of
+everything she's already made.
 
-The browser tool's PRIMARY Chromium detection doesn't depend on any of
-the s6/entrypoint machinery at all — it just reads
-`PLAYWRIGHT_BROWSERS_PATH`, a plain Docker environment variable that's
-always inherited normally. If browser still fails after this fix,
-that points somewhere different: Chromium may simply not be installed
-in the built image at all (a build-time issue, not a runtime one).
+## What was actually broken
 
-Ask her to run, via her now-confirmed-working terminal:
+`chat.py` (the old direct-API mode) always knew how to turn a
+successful `seira_generate_image` result into something the browser
+could display — but that logic lived ONLY in chat.py's own loop.
+Hermes mode (`hermes_session.py`) routes tool calls through the real
+Hermes agent instead, which had no idea `seira_generate_image` was
+special. Result: images generated successfully, silently, with no path
+to your screen. Fixed by adding the same detection hermes mode was
+missing — copied from chat.py's own logic, not reinvented.
 
-    ls -la $PLAYWRIGHT_BROWSERS_PATH
+Fixed the same gap for `seira_create_file` (generated documents) while
+in there, since it's the identical bug on a sibling tool.
 
-If that lists real files (a `chromium-*` folder with a binary inside),
-the image is fine and this entrypoint fix should resolve it. If the
-directory is empty or doesn't exist, tell me that directly — it means
-something about the Playwright install step in the build itself needs
-a look, which is a different, more specific problem than anything
-fixed so far.
+## The smaller, separate fix
+
+`tools/tool_search.py` had a bug where a tool could show up in search
+results and then get rejected as unreachable when actually called —
+this is what caused the confusing `image_generate`
+found-but-not-callable report. Fixed by making a previously-silent
+failure visible instead (same pattern as the earlier write_file fix).
+Doesn't change whether `image_generate` (the Hermes-native tool,
+separate from her own `seira_generate_image`) actually works yet — that
+one still needs `image_gen.provider` configured in config.yaml, which
+is a deliberate safety gate, not a bug.
+
+## After applying
+
+Redeploy, ask her to generate one more image, and this time it should
+appear right in the chat.
 
 Run `python -m pytest tests/seira_core/ -q` — 273 passed.
