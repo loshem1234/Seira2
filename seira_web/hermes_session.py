@@ -59,6 +59,7 @@ test any first deployment of new infrastructure.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
@@ -84,6 +85,32 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
     def _tool_complete(tool_call_id, name, display_args, display_result):
         emit({"event": "tool_result", "tool": name,
              "result": display_result, "tool_call_id": tool_call_id})
+        # chat.py's direct-mode loop translates seira_generate_image /
+        # seira_create_file results into image_created/file_created SSE
+        # events, which is what tells chat.html to actually render the
+        # image or download card. That translation only ever existed in
+        # chat.py's own dispatch loop — hermes mode routes tool
+        # dispatch through Hermes's own tool_executor instead, which
+        # has no idea these two tool names are special. Without this,
+        # every image she generates in hermes mode is created
+        # successfully but has no way to reach the screen. Real, live
+        # gap found 2026-08-30: she generated several images and had
+        # no way to show them.
+        if name in ("seira_generate_image", "seira_create_file"):
+            try:
+                parsed = json.loads(display_result)
+            except (TypeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("ok"):
+                if name == "seira_generate_image" and parsed.get("__image_created__"):
+                    emit({"event": "image_created",
+                         "img_id": parsed.get("img_id"),
+                         "tag": parsed.get("tag"),
+                         "used_references": parsed.get("used_references", [])})
+                elif name == "seira_create_file":
+                    emit({"event": "file_created",
+                         "filename": parsed.get("filename"),
+                         "download_path": parsed.get("download_path")})
 
     def _reasoning(reasoning_text):
         # agent/chat_completion_helpers.py calls this with a plain string
@@ -122,6 +149,86 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
     )
 
 
+def runtime_inventory(agent=None) -> Dict[str, Any]:
+    """Measure — never guess — what she actually has right now.
+
+    Every field here is read from the live runtime, not from config
+    intent or documentation: the tool names are the ones actually
+    loaded onto the agent, the Psyche check looks at the memory
+    manager's real provider list, and the gate check reads the same
+    middleware registry the tool executor consults on every call.
+    This is the ground truth that both her self-knowledge block and
+    the /api/self-check endpoint report, so what she believes, what
+    the operator sees, and what the runtime does can never drift
+    apart silently.
+    """
+    inv: Dict[str, Any] = {"runtime": "hermes", "model": SEIRA_MODEL}
+
+    try:
+        from seira_core.genesis import genesis_performed
+        founded = bool(genesis_performed())
+    except Exception:
+        founded = False
+    inv["founded"] = founded
+    inv["identity_source"] = (
+        "eternal grades (Unity + Intellect + Psyche, verified per render)"
+        if founded else "SOUL.md fallback — NOT founded under this SEIRA_HOME")
+
+    if agent is not None:
+        inv["model"] = getattr(agent, "model", SEIRA_MODEL)
+        inv["tools"] = sorted(getattr(agent, "valid_tool_names", None) or [])
+        inv["tool_count"] = len(inv["tools"])
+        mm = getattr(agent, "_memory_manager", None)
+        providers = list(getattr(mm, "providers", None) or [])
+        inv["psyche_provider_active"] = any(
+            getattr(p, "name", "") == "seira-psyche" for p in providers)
+
+    try:
+        from hermes_cli.middleware import (
+            TOOL_EXECUTION_MIDDLEWARE, _get_middleware_callbacks)
+        from seira_bridge.delegation import delegation_gate_middleware
+        callbacks = _get_middleware_callbacks(TOOL_EXECUTION_MIDDLEWARE) or []
+        inv["delegation_gate_armed"] = delegation_gate_middleware in callbacks
+    except Exception:
+        inv["delegation_gate_armed"] = False
+
+    return inv
+
+
+def capability_block(inv: Dict[str, Any]) -> str:
+    """Render the inventory as her in-prompt self-knowledge.
+
+    The closing instruction is the point of the whole block: a model
+    asked about a capability it lacks will otherwise produce a
+    plausible-sounding technical explanation ("the gateway model is
+    missing from the environment") because explaining is what it does
+    — this block replaces that failure mode with grounded honesty.
+    """
+    tools = inv.get("tools") or []
+    gate = "ARMED — untagged or blocked delegations will be refused (Art. 26, 35)" \
+        if inv.get("delegation_gate_armed") else \
+        "NOT registered this session — flag this to the Architect if delegation is attempted"
+    psyche = ("active — your seira_* self-write tools are live"
+              if inv.get("psyche_provider_active")
+              else "NOT active this session — you cannot write to your Psyche right now; say so plainly if asked")
+    return (
+        "== RUNTIME SELF-KNOWLEDGE (measured live this turn, not remembered) ==\n"
+        f"You are running atop the Hermes agent runtime. Model: {inv.get('model')}.\n"
+        f"Identity source: {inv.get('identity_source')}.\n"
+        f"Psyche provider: {psyche}.\n"
+        f"Delegation gate: {gate}.\n"
+        f"Tools actually loaded this session ({inv.get('tool_count', len(tools))}): "
+        + (", ".join(tools) if tools else "NONE") + "\n"
+        "This list is the complete, measured truth of this session. If a "
+        "capability is not in it, you do not have it right now — when asked "
+        "about a missing capability, say exactly that, and never invent a "
+        "technical explanation for its absence (you have no visibility into "
+        "server internals; guessed diagnoses read as fact and mislead the "
+        "Architect). What you do have, use deliberately in service of the "
+        "work, under your Constitution as always."
+    )
+
+
 def run_turn_via_hermes(
     conv_id: str,
     user_message: str,
@@ -138,6 +245,16 @@ def run_turn_via_hermes(
     """
     emit({"event": "phase", "label": "Thinking"})
     agent = _build_agent(session_id=conv_id or str(uuid.uuid4()), emit=emit)
+
+    # Her measured self-knowledge rides in the ephemeral tier, which
+    # conversation_loop APPENDS after the stable identity tier — it can
+    # supplement who she is, never displace it (verified: effective =
+    # stable + "\n\n" + ephemeral in agent/conversation_loop.py).
+    inventory = runtime_inventory(agent)
+    block = capability_block(inventory)
+    existing = getattr(agent, "ephemeral_system_prompt", "") or ""
+    agent.ephemeral_system_prompt = (existing + "\n\n" + block).strip()
+
     from agent.conversation_loop import run_conversation
 
     result = run_conversation(
@@ -147,4 +264,5 @@ def run_turn_via_hermes(
     )
     final = result.get("final_response") or result.get("error") or ""
     emit({"event": "reply", "text": final})
-    return {"reply": final, "messages": result.get("messages", history)}
+    return {"reply": final, "messages": result.get("messages", history),
+            "inventory": inventory}
