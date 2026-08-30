@@ -437,3 +437,34 @@ through `load_soul_md`, the halt propagating uncaught through
 Hermes's own middleware registry — is unchanged by any of this. Adding
 more of Hermes's real code doesn't touch how she's governed; it only
 means less of Hermes is now missing.
+
+---
+
+## Part 9.1 — Railway-specific build fix: no `VOLUME` directive
+
+First real build attempt on Railway failed with:
+
+    dockerfile invalid: docker VOLUME at Line 376 is not supported, use Railway Volumes
+
+This is a genuine Railway platform constraint — Railway's Metal builder
+rejects the Docker `VOLUME` instruction outright and expects
+persistent storage to be declared through Railway's own Volumes
+feature instead. Nothing about this is Docker-standard behavior
+(`VOLUME` works fine in plain Docker/Compose); it's specific to
+Railway's builder, which is exactly the category of thing a real build
+surfaces that copying source verbatim can't predict.
+
+**Fix:** `Dockerfile.sanctum` no longer declares `VOLUME [ "/opt/data" ]`
+— the directory is still created (`RUN mkdir -p /opt/data`), just not
+declared as a Docker volume. This changes nothing about how persistence
+actually works even in plain Docker (`VOLUME` is advisory — it doesn't
+create a bind mount by itself; an operator still has to attach one).
+
+**What you need to do on Railway**, if you haven't already:
+
+1. Open your Sanctum service → **Volumes** tab.
+2. Add a volume, mount path `/opt/data`.
+3. Confirm `HERMES_HOME=/opt/data` is still set (Part 9's variable
+   list) — that's what points Hermes at the volume you just mounted.
+
+Redeploy after this.

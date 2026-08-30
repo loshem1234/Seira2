@@ -1187,3 +1187,12 @@ rather than re-deriving them, is the strongest evidence available
 without Docker itself — but it is evidence, not a substitute for
 watching a real build succeed. Flagged plainly, again, rather than
 implied confidence that wasn't earned. See WIRING.md Part 9.
+
+**D140. Railway's Metal builder rejects Docker's `VOLUME` directive —
+a genuine platform-specific constraint no local verification could
+have caught, exactly the category flagged as unverifiable in D139.**
+`Dockerfile.sanctum` no longer declares `VOLUME [ "/opt/data" ]`; the
+directory is still created, persistence is now declared through
+Railway's own Volumes UI instead. Confirms the earlier honesty about
+this gap was correct to state plainly rather than imply confidence
+that wasn't earned.
