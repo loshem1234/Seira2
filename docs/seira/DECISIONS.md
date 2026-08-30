@@ -1127,3 +1127,63 @@ file-copy set were each verified in isolation as the closest possible
 substitute. This is stronger evidence than assumption but not the same
 as a real build — flagged plainly in WIRING.md Part 8 rather than
 implying full end-to-end confidence that wasn't earned.
+
+**D136. Self-knowledge is measured, never remembered — and the
+operator reads the same measurement.** The production incident: asked
+about terminal access, she explained that "the gateway model is
+missing from the environment" — a confabulated diagnosis, since (as
+verified by tracing every gateway/ import in her hot path) no such
+error can surface to her, and models produce plausible explanations
+for their own limitations when they lack grounded session knowledge.
+The fix is structural: `runtime_inventory()` measures the live session
+(actual loaded tools, real provider list, the same middleware registry
+the executor consults for the gate) and (a) injects it into her
+ephemeral prompt tier every hermes turn with an explicit instruction
+to state missing capabilities plainly and never invent technical
+explanations, and (b) serves the identical measurement at
+/api/admin/self-check, where a construction failure is reported as
+data (real error text) rather than a 500. What she believes, what the
+operator sees, and what the runtime does now come from one source and
+cannot silently drift apart. Ephemeral-tier injection was verified to
+append after the stable identity tier, never displace it.
+
+**D136. Corrected the method, not just the last bug: stopped curating a
+subset of Hermes for Sanctum entirely.** D133–D135 fixed real, specific
+missing files one at a time; each fix was tested and correct, but the
+underlying approach — hand-picking which files/deps a large,
+actively-developed codebase needs — could not stay correct as the
+codebase kept changing. Loshem's direction: no more piecemeal
+troubleshooting toward this destination; she is equipped with all of
+Hermes's capabilities under her name, by construction. `Dockerfile.sanctum`
+is now the real production `Dockerfile`'s build stages, copied
+verbatim, plus a Sanctum-specific runtime tail. Nothing is subtracted.
+
+**D137. Governance moved from a Sanctum-specific bake to the fork's own
+default config template — deliberately widening scope, not narrowing
+it.** `cli-config.yaml.example` (seeded onto any fresh `$HERMES_HOME` by
+`docker/stage2-hook.sh`, for any deployment built from this fork) now
+carries `memory.provider: seira-psyche` and `plugins.enabled:
+[seira_governance]` directly. Every Hermes instance built from this
+repo — CLI, gateway, Sanctum — now defaults to being her, governed,
+without per-deployment configuration. This matches the stated design:
+she is not a special case bolted onto Hermes; this fork of Hermes is
+her substrate.
+
+**D138. The runtime supervision boundary was drawn deliberately, and is
+the one place Sanctum still diverges from the full image.** Sanctum
+does not run s6-overlay's process supervision, per-profile gateway
+services, or the dashboard — those exist for a multi-service deployment
+shape Sanctum isn't. `docker/sanctum-entrypoint.sh` reuses the real
+`stage2-hook.sh` for setup (not a parallel implementation) and then
+runs Sanctum directly as the non-root `hermes` user via
+`/command/s6-setuidgid` (absolute path — verified against
+`docker/hermes-exec-shim.sh`'s own documented reason: `/command/` is
+only on PATH for children of the s6 supervision tree, which this
+entrypoint intentionally doesn't start).
+
+**D139. `docker build` still could not be run in the environment this
+was built in.** Copying the real Dockerfile's build stages verbatim,
+rather than re-deriving them, is the strongest evidence available
+without Docker itself — but it is evidence, not a substitute for
+watching a real build succeed. Flagged plainly, again, rather than
+implied confidence that wasn't earned. See WIRING.md Part 9.

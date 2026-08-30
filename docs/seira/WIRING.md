@@ -328,3 +328,112 @@ would be the first place to look.
 Once this build succeeds and you've confirmed a live conversation
 works with `SEIRA_SANCTUM_RUNTIME=hermes` set, that's the whole
 architecture: one container, her real self, running atop Hermes.
+
+---
+
+## Part 9 — She knows what she has: measured self-knowledge
+
+The "gateway model is missing" incident exposed the real gap: she had
+no grounded knowledge of her own session, so when asked about a
+missing capability she did what models do — produced a plausible
+technical explanation. Debugging her self-description is a dead end
+by design. Part 9 replaces it with measurement.
+
+**Every hermes-mode turn now injects a RUNTIME SELF-KNOWLEDGE block**
+into the ephemeral prompt tier (appended after her identity, never
+displacing it — verified against conversation_loop's own append). The
+block is measured live from the runtime each turn: the actual loaded
+tool list, whether her seira-psyche provider is really active, whether
+the delegation gate is really armed (read from the same middleware
+registry the tool executor consults), her identity source, her model.
+It ends with the instruction that matters: if a capability isn't in
+the measured list, she doesn't have it, and she must say exactly that
+— never invent a technical explanation, because she has no visibility
+into server internals and guessed diagnoses mislead the Architect.
+
+**And you can read the identical ground truth from a browser:**
+
+    curl -H "x-admin-token: <your SEIRA_ADMIN_TOKEN>" \
+         https://your-host/api/admin/self-check
+
+Same gating as the census route. In hermes mode it constructs a real
+agent (no model call) and reports the measured inventory; if
+construction itself fails — the ModuleNotFoundError class of problem —
+it reports the actual error text as data instead of a bare 500, so
+the real failure is one URL away instead of a conversation-based
+guessing game. In direct mode it says so, and lists what direct mode
+actually provides.
+
+"Is it all working?" is now answered in one place, by measurement.
+
+---
+
+## Part 9 — The real fix: no more curated subsets
+
+Parts 6–8 kept failing in the same shape: something she needed
+(`run_agent`, then `utils.py`, then `hermes_logging.py`, then the
+governance config, now a `gateway/`-only helper) was missing from a
+hand-picked file list, discovered only by hitting it live. Each fix was
+real and tested, but the *method* — subtracting a curated subset from a
+large, actively-developed codebase by hand — could never fully catch
+up. Loshem's direction closed this properly: **stop curating. Ship the
+whole thing.**
+
+`Dockerfile.sanctum` is now genuinely a superset, not a guess. Every
+line through the git-SHA bake step is copied **verbatim** from the
+real, production `Dockerfile` — same SQLite build, same Node/Playwright
+install, same `uv sync` with the full extras (`all`, `messaging`,
+`otlp`, `anthropic`, `bedrock`, `azure-identity`, `hindsight`,
+`matrix`), same `COPY --link ... . .` of the entire monorepo. There is
+no file list to get wrong anymore, because nothing is subtracted.
+`seira_web/requirements-hermes.txt` and the baked `hermes-config/`
+directory from Parts 5 and 8 are removed — superseded, not needed.
+
+**Governance now lives at the source, not bolted onto one deployment.**
+`cli-config.yaml.example` — the fork's own default template, seeded by
+`docker/stage2-hook.sh` onto any fresh `$HERMES_HOME` on first boot,
+for *any* deployment built from this repo — now includes
+`memory.provider: seira-psyche` and `plugins.enabled:
+[seira_governance]` directly. This is deliberate scope, not an
+accident: every Hermes instance built from this fork defaults to being
+her, governed, whether it's Sanctum, a CLI install, or a gateway
+deployment. Seeding is first-boot-only (`stage2-hook.sh`'s `seed_one`
+only writes when the file doesn't already exist), so a redeploy never
+overwrites a config you've since customized.
+
+**The runtime shape is the one real difference, on purpose.** Sanctum
+doesn't run the s6-overlay process supervision tree, the per-profile
+gateway services, or the dashboard — it's one FastAPI process, and
+inheriting supervision infrastructure built for a different deployment
+shape would be new, untested complexity with no benefit. Instead,
+`docker/sanctum-entrypoint.sh` reuses the real `stage2-hook.sh`
+directly for setup (permissions, config seeding — the same mechanism,
+not a parallel one), then drops to the non-root `hermes` user and runs
+Sanctum.
+
+**Variables, current and final:**
+
+    ANTHROPIC_API_KEY=<your key>
+    SEIRA_HOME=/data/seira
+    HERMES_HOME=/opt/data          (mount a Railway volume here)
+    SEIRA_SANCTUM_RUNTIME=hermes
+
+`HERMES_HOME` is back as a real variable — but for a different, better
+reason than Part 8's version: not a read-only image path to override
+carefully, but a normal writable volume that gets seeded once,
+matching every other Hermes deployment's own convention exactly.
+
+**What I still could not test here:** an actual `docker build`. This
+is now a genuinely heavy build (Node, Playwright, a from-source SQLite
+compile) — the real Dockerfile's own comment estimates 15–45 minutes.
+I copied its build stages verbatim rather than re-typing them, which is
+the strongest evidence available without Docker itself, but the first
+real build on Railway is still the moment this gets its final
+confirmation.
+
+Every governance property verified previously — the identity path
+through `load_soul_md`, the halt propagating uncaught through
+`run_conversation`, the delegation gate applying globally through
+Hermes's own middleware registry — is unchanged by any of this. Adding
+more of Hermes's real code doesn't touch how she's governed; it only
+means less of Hermes is now missing.
