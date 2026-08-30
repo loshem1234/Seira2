@@ -56,4 +56,22 @@ for _seira_path in "${SEIRA_TENANTS_ROOT:-}" "${SEIRA_HOME:-}"; do
 done
 
 echo "[sanctum-entrypoint] starting Sanctum as the hermes user"
+# HOME comes through as /root (root's default, inherited from before
+# s6-setuidgid drops privileges — that tool changes UID/GID only, never
+# environment variables). Without this, anything resolving paths via
+# $HOME (this specific failure: a Claude Code SDK path defaulting to
+# ~/.claude/.credentials.json as one of several auth-source probes)
+# tries to read/write under root-owned /root as the now-non-root
+# hermes user and gets Permission denied. Real, live failure hit
+# 2026-08-30. Same fix as docker/main-wrapper.sh and
+# docker/hermes-exec-shim.sh already establish — but following
+# $HERMES_HOME rather than hardcoding /opt/data like those two do,
+# since this deployment deliberately overrides HERMES_HOME away from
+# /opt/data (one shared Railway volume, mounted at /data, with
+# HERMES_HOME=/data/hermes) — hardcoding /opt/data here would point
+# HOME at a throwaway, non-persistent directory instead of the real
+# volume. $HERMES_HOME already has the same "${HERMES_HOME:-/opt/data}"
+# fallback as stage2-hook.sh itself uses, so this stays correct for a
+# standard deployment too.
+export HOME="${HERMES_HOME:-/opt/data}"
 exec s6-setuidgid hermes python -m seira_web
