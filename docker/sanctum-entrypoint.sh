@@ -74,4 +74,26 @@ echo "[sanctum-entrypoint] starting Sanctum as the hermes user"
 # fallback as stage2-hook.sh itself uses, so this stays correct for a
 # standard deployment too.
 export HOME="${HERMES_HOME:-/opt/data}"
+
+# Third instance of the same underlying gap (after PATH for
+# s6-setuidgid and HOME itself): stage2-hook.sh writes some variables
+# to /run/s6/container_environment/ (this one hit live, 2026-08-30:
+# AGENT_BROWSER_EXECUTABLE_PATH, found while locating the Playwright
+# Chromium binary for the browser toolset) expecting s6's own
+# supervision to propagate them — a mechanism this entrypoint never
+# runs. s6-overlay's own `with-contenv` is the general tool for this,
+# but it reads the FULL container-environment snapshot, which could
+# include the original (pre-fix) HOME and PATH values captured before
+# this script changed them — wrapping the final exec with it risks
+# silently re-introducing the exact two bugs already fixed above, and
+# there's no way to verify with-contenv's override semantics without
+# a real container to test against. Reading this one known file
+# directly, after HOME/PATH are already set, is more code than
+# reusing with-contenv generically, but it can't clobber anything.
+if [ -f /run/s6/container_environment/AGENT_BROWSER_EXECUTABLE_PATH ]; then
+    AGENT_BROWSER_EXECUTABLE_PATH="$(cat /run/s6/container_environment/AGENT_BROWSER_EXECUTABLE_PATH)"
+    export AGENT_BROWSER_EXECUTABLE_PATH
+    echo "[sanctum-entrypoint] browser executable: $AGENT_BROWSER_EXECUTABLE_PATH"
+fi
+
 exec s6-setuidgid hermes python -m seira_web
