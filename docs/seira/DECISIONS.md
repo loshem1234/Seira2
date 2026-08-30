@@ -1309,3 +1309,26 @@ inventing new behavior. Images generated before this fix are not
 lost — `seira_generate_image` saves to disk regardless of whether the
 UI shows it; already-viewable at `/api/images/{img_id-or-tag}`, and
 listable via her `seira_image_list` tool.
+
+**D147. Real, precise diagnosis handed over by her own analysis:
+"2.28 million characters, truncated, regardless of source or size" —
+correctly pointed at the transport, not the generator.** Cause:
+`hermes_session.py`'s `_tool_complete` callback passed
+`display_result` straight into an SSE `tool_result` event with no
+processing. For most tools that's fine (plain text). For a multimodal
+result — recalling a stored image sends the model a real embedded
+base64 image block so she can actually see it again, which is correct
+and necessary for her turn — that raw payload is exactly what hit
+whatever downstream size ceiling produced the truncation, at
+essentially any real image size, matching her own diagnosis exactly.
+Fixed by running `display_result` through
+`agent/tool_dispatch_helpers._multimodal_text_summary` — an existing
+Hermes utility built for precisely this ("logging, previews...
+providers that don't support multipart tool messages") — before
+emitting, then keeping the existing 2000-char bound on top. Not a new
+transport; the existing one, used correctly. Applies to every tool
+call, not just the two already special-cased for image_created/
+file_created, so a future multimodal-result tool doesn't reintroduce
+the same failure. Covered by a test using a 2.28M-character payload at
+the reported scale, asserting the raw data never reaches the emitted
+event at all.
