@@ -1196,3 +1196,17 @@ directory is still created, persistence is now declared through
 Railway's own Volumes UI instead. Confirms the earlier honesty about
 this gap was correct to state plainly rather than imply confidence
 that wasn't earned.
+
+**D141. Live crash-loop, second real Railway signal: `stage2-hook.sh`
+depends on `s6-setuidgid` being on `PATH`, which only happens under
+s6-overlay's `/init` — and `sanctum-entrypoint.sh` deliberately never
+runs `/init`.** Container looped: mount volume → run stage2 setup →
+`s6-setuidgid: not found` (exit 127) → `set -eu` kills the script →
+container dies → Railway restarts → repeat. Fixed by copying the
+project's own precedent exactly: `docker/entrypoint-dispatch.sh` hits
+this identical problem in its own non-PID-1 fallback path and solves
+it with `export PATH="/command:/package/admin/s6/command:${PATH}"`
+before calling `stage2-hook.sh`. Verified every other s6-family
+dependency inside `stage2-hook.sh` (all `s6-setuidgid`; the two
+`with-contenv` mentions are comments, not invocations) is covered by
+this same PATH addition — no second crash expected from this file.
