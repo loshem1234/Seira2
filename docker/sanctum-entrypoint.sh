@@ -32,5 +32,28 @@ export PATH="/command:/package/admin/s6/command:${PATH}"
 echo "[sanctum-entrypoint] running stage2 setup (shared with every Hermes deployment from this fork)"
 /opt/hermes/docker/stage2-hook.sh
 
+# stage2-hook.sh only fixes ownership of $HERMES_HOME — it has no
+# knowledge of Sanctum-specific paths (SEIRA_TENANTS_ROOT, SEIRA_HOME),
+# and reasonably shouldn't; embedding Sanctum specifics into the
+# shared script would break that script's "one script, works for any
+# deployment built from this fork" property. This is that same fix,
+# scoped correctly to Sanctum's own entrypoint instead.
+#
+# Real, live failure hit 2026-08-30: her existing conversation data
+# under SEIRA_TENANTS_ROOT predates this image running as a non-root
+# user, so it's still owned by whatever UID ran the container before
+# (almost certainly root) — Permission denied writing new turns as
+# the now-non-root hermes user. This chown ONLY changes ownership
+# metadata; it never touches file content, so no data is at risk.
+# Runs after stage2-hook.sh (not before) so the "hermes" name is
+# already correctly remapped if HERMES_UID overrides the default.
+for _seira_path in "${SEIRA_TENANTS_ROOT:-}" "${SEIRA_HOME:-}"; do
+    if [ -n "$_seira_path" ] && [ -d "$_seira_path" ]; then
+        echo "[sanctum-entrypoint] fixing ownership of $_seira_path to hermes"
+        chown -R hermes:hermes "$_seira_path" 2>/dev/null || \
+            echo "[sanctum-entrypoint] Warning: chown $_seira_path failed (rootless container?) — continuing"
+    fi
+done
+
 echo "[sanctum-entrypoint] starting Sanctum as the hermes user"
 exec s6-setuidgid hermes python -m seira_web
