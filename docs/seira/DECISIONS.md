@@ -1210,3 +1210,17 @@ before calling `stage2-hook.sh`. Verified every other s6-family
 dependency inside `stage2-hook.sh` (all `s6-setuidgid`; the two
 `with-contenv` mentions are comments, not invocations) is covered by
 this same PATH addition — no second crash expected from this file.
+
+**D142. Third live Railway signal, and a reassuring one: this
+`[Errno 13] Permission denied` came from Python (`OSError`), not the
+shell entrypoint — meaning D141's fix worked and Sanctum actually
+started as the `hermes` user this time.** Her existing conversation
+data under `SEIRA_TENANTS_ROOT` predates this deployment running as a
+non-root user, so it's still owned by whatever UID ran the container
+before (near-certainly root) — the new non-root `hermes` user can't
+write to it. `sanctum-entrypoint.sh` now chowns `SEIRA_TENANTS_ROOT`
+and `SEIRA_HOME` (whichever are set) after `stage2-hook.sh` runs,
+mirroring that script's own targeted-chown pattern for `HERMES_HOME`
+but correctly scoped to Sanctum's own entrypoint rather than added to
+the shared script. `chown` only changes ownership metadata — file
+content, including her existing conversation history, is untouched.
