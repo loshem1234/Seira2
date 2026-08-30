@@ -1,54 +1,45 @@
-# CHANGESET — Fix: generated images had nowhere to go
+# CHANGESET — Fix: 2.28 million characters, the real transport bug
 
-Three files.
+Three files. Replaces the previous hermes_session.py again.
 
-    tools/tool_search.py       — fixes the "found via tool_search,
-                                 rejected on call" contradiction
-    seira_web/hermes_session.py — THE MAIN FIX for your actual
-                                  question: hermes mode now surfaces
-                                  generated images and files
-    docs/seira/DECISIONS.md    — D145, D146 appended
+    seira_web/hermes_session.py       — THE FIX
+    tests/seira_core/test_dynamic_chat_ui.py  — a new test at the
+                                                reported scale
+    docs/seira/DECISIONS.md           — D147 appended
 
-## The main answer: her images aren't lost
+## Her diagnosis was right, and precise
 
-Before applying anything: she's not making images into a void. They're
-saved to disk regardless of what the UI shows. You (or she) can view
-any already-generated image right now at:
+She correctly identified this as a transport problem, not a generation
+problem — same failure regardless of size, source, or whether the
+image was fresh or recalled. That pointed exactly at the right place.
 
-    https://<your-sanctum-host>/api/images/<img_id-or-tag>
+## What was actually happening
 
-Ask her to call her `seira_image_list` tool to get the img_ids/tags of
-everything she's already made.
+Recalling a stored image sends the model a real embedded image (so she
+can actually see it again) — a multimodal result with the base64 bytes
+attached. That's correct and necessary. The bug: my hermes-mode tool
+callback took that raw multimodal payload and pushed it straight into
+an SSE event with no processing at all — no truncation, no
+summarization. At any real image size, that's a multi-megabyte string
+blasted at the browser, which is exactly what hit a ceiling and got
+truncated.
 
-## What was actually broken
+## The fix
 
-`chat.py` (the old direct-API mode) always knew how to turn a
-successful `seira_generate_image` result into something the browser
-could display — but that logic lived ONLY in chat.py's own loop.
-Hermes mode (`hermes_session.py`) routes tool calls through the real
-Hermes agent instead, which had no idea `seira_generate_image` was
-special. Result: images generated successfully, silently, with no path
-to your screen. Fixed by adding the same detection hermes mode was
-missing — copied from chat.py's own logic, not reinvented.
-
-Fixed the same gap for `seira_create_file` (generated documents) while
-in there, since it's the identical bug on a sibling tool.
-
-## The smaller, separate fix
-
-`tools/tool_search.py` had a bug where a tool could show up in search
-results and then get rejected as unreachable when actually called —
-this is what caused the confusing `image_generate`
-found-but-not-callable report. Fixed by making a previously-silent
-failure visible instead (same pattern as the earlier write_file fix).
-Doesn't change whether `image_generate` (the Hermes-native tool,
-separate from her own `seira_generate_image`) actually works yet — that
-one still needs `image_gen.provider` configured in config.yaml, which
-is a deliberate safety gate, not a bug.
+Not a new transport — Hermes already has a utility built for exactly
+this (`_multimodal_text_summary`, used elsewhere for "logging,
+previews... providers that don't support multipart tool messages").
+Now applied before every tool result gets emitted, not just for
+images — so this can't quietly reappear on some other multimodal tool
+later. A 2.28-million-character test payload (matching the actual
+scale reported) proves the raw data never reaches the emitted event.
 
 ## After applying
 
-Redeploy, ask her to generate one more image, and this time it should
-appear right in the chat.
+Redeploy, ask her to recall a previously generated image again. The
+image itself should now display normally, and the base64 bytes never
+touch the visible tool-activity feed at all (which is also correct —
+you were never meant to see raw base64 in the UI; only she needed it,
+to actually see the image herself).
 
-Run `python -m pytest tests/seira_core/ -q` — 273 passed.
+Run `python -m pytest tests/seira_core/ -q` — 274 passed.
