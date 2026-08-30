@@ -1,34 +1,40 @@
-# CHANGESET — Railway build fix: remove VOLUME directive
+# CHANGESET — Fix the crash-loop: s6-setuidgid not found
 
-Three files.
+Two files.
 
-    Dockerfile.sanctum          — removed `VOLUME [ "/opt/data" ]`
-                                  (line 376). This was the exact build
-                                  error: Railway's Metal builder
-                                  rejects that instruction outright.
-    docs/seira/WIRING.md        — Part 9.1 appended
-    docs/seira/DECISIONS.md     — D140 appended
+    docker/sanctum-entrypoint.sh   — THE FIX
+    docs/seira/DECISIONS.md        — D141 appended
 
-## What you need to do — this is NOT just a code fix
+## What was happening
 
-Removing the line only stops the build from failing. You still need to
-actually create the persistent mount, since Docker's own `VOLUME`
-directive never did the real work anyway (it's advisory even in plain
-Docker). On Railway:
+Your container was crash-looping: mount volume → stage2 setup starts →
+`s6-setuidgid: not found` → script dies → Railway restarts → repeat,
+forever. Cause: `stage2-hook.sh` calls `s6-setuidgid` assuming it's on
+PATH, which is only true when run inside s6-overlay's normal
+supervision (`/init`). My entrypoint deliberately skips that
+supervision (Sanctum doesn't need it), so that assumption broke.
 
-1. Your Sanctum service → **Volumes** tab.
-2. Add a volume, mount path exactly `/opt/data`.
-3. Keep `HERMES_HOME=/opt/data` set (unchanged from before) — that's
-   what tells Hermes to use the volume you just mounted.
+## The fix
 
-Then redeploy. This build will still take a while (Node, Playwright,
-the SQLite compile) — that's expected, not a new problem.
+One line added before calling `stage2-hook.sh`:
 
-If it fails again, this is now genuinely the first Docker build ever
-run against this file — the next error, if there is one, will be new
-information, not something I could have caught by reading source. Send
-me the exact error text and I'll trace it the same way as this one.
+    export PATH="/command:/package/admin/s6/command:${PATH}"
 
-Run `python -m pytest tests/seira_core/ -q` — 273 passed (this change
-doesn't touch anything the test suite exercises; it's Docker-syntax
-only).
+This isn't invented — it's copied directly from
+`docker/entrypoint-dispatch.sh`, which already solves this exact
+problem in its own fallback path (for platforms that wrap the image
+under their own init). Same problem, same proven solution, not a new
+pattern.
+
+I checked every other place `stage2-hook.sh` depends on an s6 command
+(there are several `s6-setuidgid` calls) — all covered by this same
+PATH fix. No second crash from this file expected.
+
+## After applying
+
+Redeploy. Watch the logs for `[sanctum-entrypoint] starting Sanctum as
+the hermes user` — if you see that line without a crash right after
+it, the entrypoint made it all the way through and Sanctum itself is
+starting.
+
+Run `python -m pytest tests/seira_core/ -q` — 273 passed.
