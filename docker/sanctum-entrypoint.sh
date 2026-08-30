@@ -15,13 +15,22 @@
 # of sync with it.
 set -eu
 
+# stage2-hook.sh calls s6-setuidgid internally (line ~24) assuming it's
+# on PATH — true only when invoked under s6-overlay's /init, which
+# normally seeds PATH with s6's helpers. This entrypoint deliberately
+# doesn't run /init (see the block comment above), so that seeding
+# never happens and stage2-hook.sh fails immediately with
+# "s6-setuidgid: not found", exit 127 — under `set -eu` that kills this
+# script, which kills the container, which Railway restarts forever.
+# Real, live crash-loop hit 2026-08-30; fixed by copying the exact
+# precedent the project's own entrypoint-dispatch.sh already
+# established for this identical situation (its non-PID-1 fallback
+# path, when a platform wraps the image under its own init and s6
+# can't take PID 1 either) rather than inventing a new pattern.
+export PATH="/command:/package/admin/s6/command:${PATH}"
+
 echo "[sanctum-entrypoint] running stage2 setup (shared with every Hermes deployment from this fork)"
 /opt/hermes/docker/stage2-hook.sh
 
 echo "[sanctum-entrypoint] starting Sanctum as the hermes user"
-# /command/ (where s6-setuidgid lives) is only added to PATH for children
-# of the s6 supervision tree, which this entrypoint deliberately doesn't
-# run — same gap docker/hermes-exec-shim.sh already documents and works
-# around with an absolute path. Doing the same here rather than adding
-# /command to PATH globally, which would be a wider, unreviewed change.
-exec /command/s6-setuidgid hermes python -m seira_web
+exec s6-setuidgid hermes python -m seira_web
