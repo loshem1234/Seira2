@@ -198,6 +198,21 @@ def _core_tool_names() -> frozenset[str]:
         from toolsets import _HERMES_CORE_TOOLS
         return frozenset(_HERMES_CORE_TOOLS)
     except Exception:
+        # A transient failure here silently degrades to "no tool is
+        # core" — every core tool (image_generate, terminal, write_file,
+        # ...) then misclassifies as deferrable: it can appear in
+        # tool_search results, then get rejected as "not a deferrable
+        # tool" when actually invoked, since is_deferrable_tool_name()
+        # is re-evaluated fresh on the invocation and would very likely
+        # succeed on that second call (module already cached by then).
+        # Diagnosed live 2026-08-30 from exactly that contradiction —
+        # found via tool_search, rejected on tool_call/tool_describe —
+        # with no visibility into why at the time. Logged now so a
+        # recurrence shows the real cause instead of another confusing
+        # search-found-but-unreachable report.
+        logger.warning("Could not import _HERMES_CORE_TOOLS from toolsets; "
+                       "every tool will misclassify as deferrable until this "
+                       "resolves", exc_info=True)
         return frozenset()
 
 
