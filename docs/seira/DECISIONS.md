@@ -1224,3 +1224,21 @@ mirroring that script's own targeted-chown pattern for `HERMES_HOME`
 but correctly scoped to Sanctum's own entrypoint rather than added to
 the shared script. `chown` only changes ownership metadata — file
 content, including her existing conversation history, is untouched.
+
+**D143. Fourth live Railway signal: `HOME` was still `/root` after
+dropping to the non-root `hermes` user, because `s6-setuidgid` changes
+UID/GID only, never environment variables.** A Claude Code SDK
+auth-source probe (`~/.claude/.credentials.json`, one of several
+fallback credential checks before `ANTHROPIC_API_KEY`) resolved `~`
+via that stale `HOME=/root` and hit `Permission denied` as the
+non-root user. `docker/main-wrapper.sh` and
+`docker/hermes-exec-shim.sh` already diagnose and fix this identical
+problem with `export HOME=/opt/data` before their own privilege drop
+— but hardcoding `/opt/data` would be wrong for this specific
+deployment, which deliberately overrides `HERMES_HOME=/data/hermes`
+(one shared Railway volume mounted at `/data`). Fixed with
+`export HOME="${HERMES_HOME:-/opt/data}"` instead — same fix, correctly
+generalized to follow whatever `HERMES_HOME` actually resolves to,
+using the identical fallback convention `stage2-hook.sh` itself uses.
+By this point `stage2-hook.sh` has already `chown`'d `$HERMES_HOME` to
+`hermes:hermes`, so it's safe to point `HOME` there.
