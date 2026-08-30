@@ -174,6 +174,45 @@ def test_sidebar_closes_via_robust_click_outside_pattern():
     assert "setSidebar(false)" in CHAT_HTML
 
 
+def test_hermes_session_summarizes_multimodal_results_before_emitting():
+    """The real, live bug: recalling a stored image sends the model a
+    multimodal envelope with the actual base64 image bytes attached —
+    correct and necessary for her turn, but blasting that raw through
+    an SSE tool_result event hit a downstream transport ceiling
+    (reported live as a 2.28-million-character truncated event). The
+    fix reuses Hermes's own existing summarizer rather than a new
+    transport; this proves it actually runs before emit()."""
+    from unittest.mock import patch
+
+    class _FakeAgent:
+        def __init__(self, **kw):
+            self.tool_complete_callback = kw["tool_complete_callback"]
+
+    huge_base64 = "A" * 2_280_000  # matches the reported failure's scale
+    multimodal_result = {
+        "_multimodal": True,
+        "text_summary": "Recalled image: portrait-01",
+        "content": [
+            {"type": "text", "text": "Recalled image: portrait-01"},
+            {"type": "image", "source": {"type": "base64", "data": huge_base64}},
+        ],
+    }
+
+    with patch("run_agent.AIAgent", _FakeAgent):
+        from seira_web.hermes_session import _build_agent
+        events = []
+        agent = _build_agent("c1", events.append)
+    agent.tool_complete_callback("tc1", "seira_psyche_recall", {}, multimodal_result)
+
+    assert len(events) == 1
+    result_ev = events[0]
+    assert result_ev["event"] == "tool_result"
+    # The base64 payload must never reach the emitted event at all.
+    assert "A" * 100 not in result_ev["result"]
+    assert len(result_ev["result"]) <= 2000
+    assert "portrait-01" in result_ev["result"]
+
+
 def test_hermes_session_emits_reasoning_and_deltas():
     """The hermes-mode agent must wire reasoning/thinking/stream-delta
     callbacks so the UI's live panels have a data source."""
