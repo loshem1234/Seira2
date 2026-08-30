@@ -1,43 +1,35 @@
-# CHANGESET — Fix: Permission denied writing her conversation data
+# CHANGESET — Fix: [Errno 13] on /root/.claude/.credentials.json
 
-Two files.
+Two files. This REPLACES the previous sanctum-entrypoint.sh — apply
+this one, not the earlier permission-fix zip.
 
-    docker/sanctum-entrypoint.sh   — THE FIX (supersedes the previous
-                                     crash-loop-fix version of this
-                                     same file — this replaces it, not
-                                     adds to it)
-    docs/seira/DECISIONS.md        — D142 appended
-
-## Good news first
-
-This error means the LAST fix (the crash-loop one) worked. The error
-is a Python `PermissionError`, not a shell script dying — Sanctum
-actually started and ran as the `hermes` user this time. Real
-progress, different problem now.
+    docker/sanctum-entrypoint.sh   — THE FIX
+    docs/seira/DECISIONS.md        — D143 appended
 
 ## What was happening
 
-Her conversation data under `SEIRA_TENANTS_ROOT` was written by
-whatever user ran the container BEFORE this security improvement
-(almost certainly root, since earlier versions of Dockerfile.sanctum
-never dropped to a non-root user). Now that Sanctum runs as the
-non-root `hermes` user (a real security improvement, matching the
-production image's own posture), it can't write to files still owned
-by root.
+`s6-setuidgid` (which drops the process from root to the `hermes`
+user) changes only the UID/GID — it never touches environment
+variables. So `HOME` stayed `/root` even after the switch. Something
+(a Claude Code SDK credential probe, one of several optional
+auth-source checks before falling back to your ANTHROPIC_API_KEY) tried
+to read `~/.claude/.credentials.json`, which resolved to
+`/root/.claude/...` — a directory the now-non-root process can't
+touch.
 
-## The fix — nothing about her data is touched
-
-The entrypoint now runs `chown -R hermes:hermes` on
-`SEIRA_TENANTS_ROOT` and `SEIRA_HOME` (whichever are set) once, after
-setup, before Sanctum starts. `chown` changes ONLY ownership metadata
-— it does not read, modify, move, or delete file content. Her existing
-conversations are not at risk from this.
+This exact problem is already known and fixed elsewhere in this same
+codebase (`docker/main-wrapper.sh`, `docker/hermes-exec-shim.sh`) — I
+copied that fix rather than inventing a new one, with one adjustment:
+those two hardcode `HOME=/opt/data`, which is wrong for YOUR specific
+setup (you deliberately moved HERMES_HOME to `/data/hermes` on your
+shared volume). This version follows `$HERMES_HOME` correctly instead
+of hardcoding the default.
 
 ## After applying
 
-Redeploy. Watch for `[sanctum-entrypoint] fixing ownership of
-/data/tenants to hermes` (or wherever your path is) in the logs, then
-`starting Sanctum as the hermes user` with no error after it. Ask her
-to try writing something again.
+Redeploy, then ask her to try again — this should be the fourth and
+(hopefully) final piece of the Docker/permissions puzzle. If something
+else surfaces, it'll be new information from a real, further-along
+boot, same as each of the last few rounds.
 
 Run `python -m pytest tests/seira_core/ -q` — 273 passed.
