@@ -1271,3 +1271,41 @@ build-time question. Next diagnostic step given to Loshem: use her now
 -confirmed-working terminal access to check directly
 (`ls -la $PLAYWRIGHT_BROWSERS_PATH`) rather than continue reasoning
 about it blind.
+
+**D145. Real bug found and fixed, distinct from the entrypoint issues:
+`_core_tool_names()` in `tools/tool_search.py` had a bare
+`except Exception: return frozenset()` around importing the core-tool
+list.** A transient import failure (plausible given Sanctum builds a
+fresh `AIAgent` every turn — a different module-load pattern than a
+long-running CLI process) makes every tool misclassify as deferrable
+until the import succeeds on a later call within the same session.
+Diagnosed live 2026-08-30 from exactly that contradiction:
+`image_generate` findable via `tool_search`, then rejected as "not a
+deferrable tool" moments later on `tool_call`/`tool_describe` — both
+paths call the same `is_deferrable_tool_name()`, so a consistent
+answer within one session was the expected behavior, and the
+inconsistency was the actual bug. Fixed by logging the swallowed
+exception at `warning` level with `exc_info=True` (same pattern as
+D-the-write_file-fix): doesn't guarantee the transient race can't
+recur, but a recurrence now produces a real diagnostic instead of a
+confusing search-found-but-unreachable report. Separately confirmed
+`image_generate` still requires `image_gen.provider` explicitly set in
+`config.yaml` regardless — a deliberate safety gate ("must not opt a
+user into a paid image-generation backend"), not a bug, and not yet
+configured for this deployment.
+
+**D146. Real, separate gap: hermes-mode image/file generation had no
+way to reach the UI.** `chat.py`'s direct-mode dispatch loop
+translates `seira_generate_image`/`seira_create_file` tool results
+into `image_created`/`file_created` SSE events — the events
+`chat.html`'s `addGeneratedImage()`/download-card rendering actually
+listen for. That translation only ever existed in chat.py's own loop;
+`hermes_session.py`'s `_tool_complete` callback (the one hermes mode
+actually uses) had no equivalent, so every image or file she created
+in hermes mode was genuinely created and saved, with no way to surface
+it in Sanctum. Fixed by adding the same detection to
+`hermes_session.py`, mirroring chat.py's logic exactly rather than
+inventing new behavior. Images generated before this fix are not
+lost — `seira_generate_image` saves to disk regardless of whether the
+UI shows it; already-viewable at `/api/images/{img_id-or-tag}`, and
+listable via her `seira_image_list` tool.
