@@ -1299,9 +1299,19 @@ def handle_function_call(
             if edit_block_message is not None:
                 return edit_block_message
         except Exception as _edit_approval_err:
-            logger.debug("ACP edit approval guard error: %s", _edit_approval_err)
+            # Raised to warning (was debug-only) because this branch was
+            # producing a generic "approval guard failed" message with the
+            # actual cause invisible in normal logs — diagnosed live once
+            # already (2026-08-30) where the real exception was never
+            # seen. Included in the tool_result text too, not just logs:
+            # she's often the one debugging her own environment, and a
+            # bare "approval guard failed" gives her nothing to work with.
+            logger.warning("ACP edit approval guard error for %s: %s",
+                           function_name, _edit_approval_err, exc_info=True)
             if function_name in {"write_file", "patch"}:
-                return tool_error("Edit approval denied: approval guard failed")
+                return tool_error(
+                    f"Edit approval denied: approval guard failed "
+                    f"({type(_edit_approval_err).__name__}: {_edit_approval_err})")
 
         # Notify the read-loop tracker when a non-read/search tool runs,
         # so the *consecutive* counter resets (reads after other work are fine).
