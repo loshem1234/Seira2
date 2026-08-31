@@ -1,52 +1,55 @@
-# CHANGESET — Living Projects + Her Own Repository (complete, final)
+# CHANGESET — The Archive page
 
-This SUPERSEDES the previous "living-projects" zip entirely — same
-eight files, further refined. Apply this one; you don't need the
-earlier one at all. If you already applied the earlier one, just
-overwrite with these — no separate merge step, no partial application.
+Seven files. This is a straightforward addition on top of everything
+already applied — nothing here touches the projects/references/images
+storage itself, only reads it.
 
-## Replaces an existing file (6)
+## Replaces an existing file (5)
 
-    seira_bridge/__init__.py       — full living-projects tool set,
-                                     PLUS: initiative field, explicit
-                                     discretion language, filtering
-    seira_web/references.py        — reference records carry an
-                                     optional `project` field
-    agent/prompt_builder.py        — hermes mode's identity path
-                                     appends the concise project index
-    tests/seira_core/test_bridge.py — governance test updated with all
-                                      new tool names
-    docs/seira/WIRING.md           — Parts 11 and 12 both included
-    docs/seira/DECISIONS.md        — D151 through D158 all included
+    seira_web/app.py               — two new routes: /archive and
+                                     /archive/reference/{ref_id}
+    seira_web/templates/base.html  — "Archive" added to the hamburger
+                                     menu
+    tests/seira_core/test_ui_update_app.py — 7 new tests
+    docs/seira/WIRING.md           — Part 13 appended
+    docs/seira/DECISIONS.md        — D159–D161 appended
 
 ## New file (2)
 
-    seira_web/projects.py          — the whole subsystem
-    tests/seira_core/test_projects.py — 36 tests total
+    seira_web/templates/archive.html            — the main page
+    seira_web/templates/archive_reference.html  — the read-only
+                                                  document viewer
 
-## What's new in THIS round, on top of last time
+## What you'll see
 
-You asked for something specific: not just the technical ability to
-create a project unprompted (which, honestly, was already there — no
-tool in this whole system has ever required explicit permission to
-use) but an actual STATED discretion, and a real, visible record of
-what she started on her own versus what was asked of her.
+Open the hamburger menu → Archive. Three tabs:
 
-- `seira_project_create`'s description now says it directly: *"You do
-  not need to be asked or given permission — the same discretion you
-  already have to search the web or generate an image extends here."*
-- Every project now honestly self-reports `initiative: "self" |
-  "requested"` — same discipline as her diary's mandatory provenance
-  field. Not a formality: the tool asks for it every time, so stating
-  it is a real, conscious act.
-- Self-initiated projects are marked `(her own initiative)` right in
-  her always-visible index — visible, not just logged.
-- `seira_project_list` (and the underlying function) can filter to
-  `initiative='self'` — a genuine, browsable "what I started on my
-  own" view, without needing a second, separate storage location.
+- **Projects** — every living project, marked when it was her own
+  initiative, with every document filed under it.
+- **Documents** — anything not currently grouped into a project.
+- **Images** — a thumbnail gallery.
+
+Click any document to read it in full, read-only.
+
+## Read-only, actually — not just by convention
+
+No route this adds accepts anything but GET. Nothing here can modify
+her Corpus — it's the same data her own tools already write to, just
+made visible to you. Verified by test, not just intended: the document
+viewer's content area is checked for the literal absence of a `<form>`
+element.
+
+## One technical detail worth knowing
+
+Documents can be long, and the underlying read function caps each
+internal call at 40,000 characters — a limit that exists to keep HER
+reads bounded, not yours. The viewer loops that call server-side to
+assemble a full page (up to 300,000 characters) rather than paginating
+in the browser. There's a test specifically checking that the END of a
+long document actually appears on the page, not just its first chunk.
 
 ## Testing
 
-325 passed (316 from last round + 9 new). Run:
+332 passed (325 before this round + 7 new). Run:
 
     python -m pytest tests/seira_core/ -q
