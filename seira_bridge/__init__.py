@@ -372,19 +372,64 @@ REFERENCE_LIST_SCHEMA = {
 REFERENCE_RECALL_SCHEMA = {
     "name": "seira_reference_recall",
     "description": (
-        "Read a slice of a saved reference document by id or filename. "
-        "Documents can be large; page through with offset/length rather "
-        "than assuming it all fits at once. has_more in the result tells "
-        "you whether to ask for the next slice."
+        "Read a slice of a saved reference document by id, tag, or "
+        "filename. Documents can be large; page through with "
+        "offset/length rather than assuming it all fits at once. "
+        "has_more in the result tells you whether to ask for the next "
+        "slice. Use seira_reference_list first if you don't remember "
+        "the exact tag."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "ref": {"type": "string", "description": "ref_id or filename."},
+            "ref": {"type": "string", "description": "ref_id, tag, or filename."},
             "offset": {"type": "integer"},
             "length": {"type": "integer", "description": "Max 40000 characters per call."},
         },
         "required": ["ref"],
+    },
+}
+
+REFERENCE_TAG_SCHEMA = {
+    "name": "seira_reference_tag",
+    "description": (
+        "Give a saved reference document a memorable tag (e.g. "
+        "'project-brief') so it — and only it — can be recalled by that "
+        "name later instead of an opaque id. Tags must be unique; a "
+        "collision is refused, not silently overwritten."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "ref_id": {"type": "string"},
+            "tag": {"type": "string"},
+        },
+        "required": ["ref_id", "tag"],
+    },
+}
+
+REFERENCE_SAVE_SCHEMA = {
+    "name": "seira_reference_save",
+    "description": (
+        "Deliberately keep a piece of text — something pulled from a "
+        "webpage via web_extract, or any other text worth remembering — "
+        "in her tagged Corpus, the same permanent store her uploaded "
+        "and generated documents live in. Not automatic: only what she "
+        "chooses to save is saved, the same discipline as her diary. "
+        "Give it a tag so it's easy to recall later; omit to get one "
+        "auto-derived from the filename."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "filename": {"type": "string",
+                        "description": "A descriptive name, e.g. 'openai-pricing-page.txt'."},
+            "content": {"type": "string"},
+            "tag": {"type": "string", "description": "Optional; auto-derived if omitted."},
+            "source": {"type": "string", "default": "web",
+                      "description": "Where this came from — 'web' by default."},
+        },
+        "required": ["filename", "content"],
     },
 }
 
@@ -397,7 +442,11 @@ CREATE_FILE_SCHEMA = {
         "will want to save or share, not for ordinary chat replies. "
         "Content supports simple structure: '# '/'## '/'### ' headings, "
         "'- ' bullet lines, blank-line-separated paragraphs — full "
-        "Markdown fidelity in docx/pdf isn't supported, only this subset."
+        "Markdown fidelity in docx/pdf isn't supported, only this subset. "
+        "The document also joins her tagged Corpus automatically — "
+        "recall it later with seira_reference_recall using the "
+        "reference_tag returned here, the same as any other saved "
+        "document."
     ),
     "parameters": {
         "type": "object",
@@ -561,6 +610,7 @@ class SeiraPsycheProvider(MemoryProvider):
                 PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA,
                 SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA,
                 DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA,
+                REFERENCE_TAG_SCHEMA, REFERENCE_SAVE_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
 
@@ -702,6 +752,31 @@ class SeiraPsycheProvider(MemoryProvider):
                         args["ref"], args.get("offset", 0), args.get("length", 8000)
                     )
                     return json.dumps({"ok": result["found"], **result})
+                if tool_name == "seira_reference_tag":
+                    from seira_web import references as refs
+                    try:
+                        rec = refs.set_tag(args["ref_id"], args["tag"])
+                        return json.dumps({"ok": True, "tag": rec["tag"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_reference_save":
+                    # For content she found on the web (or anywhere else)
+                    # and chose to keep — deliberate, not automatic, the
+                    # same way seira_diary_write is deliberate rather
+                    # than every thought being logged. Joins the exact
+                    # same tagged Corpus store as uploads and her own
+                    # generated documents.
+                    from seira_web import references as refs
+                    try:
+                        rec = refs.save_reference(
+                            args["filename"], args["content"],
+                            source=args.get("source", "web"),
+                            tag=args.get("tag", ""),
+                        )
+                        return json.dumps({"ok": True, "ref_id": rec["ref_id"],
+                                           "tag": rec["tag"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
                 if tool_name == "seira_create_file":
                     from seira_web.filegen import FileGenError, create_file
                     try:
@@ -709,26 +784,67 @@ class SeiraPsycheProvider(MemoryProvider):
                             args["format"], args["filename"], args["content"],
                             language=args.get("language", ""),
                         )
+                        # Every document she generates joins her tagged
+                        # Corpus automatically — the same "no extra step
+                        # needed" treatment seira_generate_image already
+                        # gives images. A generated document is useful
+                        # exactly twice: once as a download, and later
+                        # when she wants to recall what she actually
+                        # wrote. Best-effort: a reference-save failure
+                        # (e.g. empty content) must never fail the file
+                        # download itself, which already succeeded.
+                        ref_tag = None
+                        try:
+                            from seira_web import references as refs
+                            ref_rec = refs.save_reference(
+                                rec["filename"], args["content"], source="generated"
+                            )
+                            ref_tag = ref_rec["tag"]
+                        except ValueError as e:
+                            logger.debug("Could not save generated file as a "
+                                        "reference (download still succeeded): %s", e)
                         return json.dumps({
                             "ok": True, "out_id": rec["out_id"],
                             "filename": rec["filename"],
                             "download_path": f"/api/outputs/{rec['out_id']}",
+                            "reference_tag": ref_tag,
                         })
                     except FileGenError as e:
                         return json.dumps({"ok": False, "error": str(e)})
                 if tool_name == "seira_image_recall":
-                    # Real image bytes returned as a tool_result image
-                    # block — Anthropic's tool_result content supports
-                    # image blocks natively.
-                    from seira_web.images import get_image_block, image_record
+                    # Real image bytes returned as a genuine Hermes
+                    # multimodal tool result — NOT json.dumps'd, a real
+                    # dict — so Hermes's own truncation/persistence path
+                    # (tools/tool_result_storage.py) recognizes and
+                    # exempts it, the same way its own built-in vision
+                    # tools already do (tools/vision_tools.py). The old
+                    # __image_block__-in-a-json-string convention this
+                    # replaces relied on a sandbox execution environment
+                    # being active to avoid truncation on large images —
+                    # not guaranteed for every deployment shape, and the
+                    # real cause of a genuine live failure (2026-08-30):
+                    # a saved image recalled at real size got truncated
+                    # at ~1.6M characters. This shape is exempt from that
+                    # path entirely, by construction, not by avoiding the
+                    # failure mode. See docs/seira/DECISIONS.md.
+                    from seira_web.images import get_image_data_uri, image_record
                     ref = args["ref"]
                     rec = image_record(ref)
                     if rec is None:
                         return json.dumps({"ok": False,
                                            "error": f"No image matching {ref!r}."})
-                    block = get_image_block(ref)
-                    return json.dumps({"ok": True, "__image_block__": block,
-                                       "filename": rec["filename"], "tag": rec["tag"]})
+                    data_uri = get_image_data_uri(ref)
+                    note = f"Recalled image: {rec['tag']} ({rec['filename']})"
+                    return {
+                        "_multimodal": True,
+                        "content": [
+                            {"type": "text", "text": note},
+                            {"type": "image_url", "image_url": {"url": data_uri}},
+                        ],
+                        "text_summary": note,
+                        "meta": {"img_id": rec["img_id"], "tag": rec["tag"],
+                                "filename": rec["filename"], "kind": "image_recall"},
+                    }
                 if tool_name == "seira_image_tag":
                     from seira_web.images import set_tag
                     try:
