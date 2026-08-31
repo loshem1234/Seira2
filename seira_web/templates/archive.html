@@ -30,6 +30,7 @@
     <div class="entry">
       <a href="/archive/reference/{{ f.ref_id }}">{{ f.filename }}</a>
       <span class="muted"> · [{{ f.tag }}] · {{ f.source }} · {{ f.length }} chars</span>
+      {% if f.get("is_summary") %}<span class="muted"> · session checkpoint</span>{% endif %}
     </div>
     {% else %}
     <p class="muted">No documents filed here yet.</p>
