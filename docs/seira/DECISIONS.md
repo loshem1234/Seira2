@@ -1453,3 +1453,27 @@ pull up exactly what she started unprompted as its own set. Kept as a
 filter on the one shared store rather than a second, parallel
 directory — consistent with D151's reasoning against fragmenting the
 Corpus into multiple places to look.
+
+**D159. The Archive page is strictly read-only by construction, not by
+convention — no route it adds accepts a POST, PUT, or DELETE.** Per
+Loshem's direction (2026-08-31): visibility into her Corpus for the
+Architect, not a second way to modify it. Verified by test that the
+document viewer's content area contains no `<form>` element.
+
+**D160. The read-only document viewer assembles beyond
+`read_slice()`'s per-call cap rather than building a pagination UI or
+silently showing a truncated first page.** That 40,000-character cap
+exists to keep a model's reads bounded; a human reading in a browser
+via `/archive/reference/{ref_id}` isn't the thing that bound protects,
+so the route loops calls server-side up to a generous 300,000-character
+total, with a plain notice if a document genuinely exceeds even that.
+Verified by a test asserting the *end* of a 50,000+ character document
+is present on the page, not just its first 40,000 characters — the
+failure mode a naive single-call implementation would have had.
+
+**D161. Archive reuses the exact same storage and tenant-scoping every
+other page already uses — no new access path.** `projects.list_projects()`,
+`references.list_references()`, `images.list_images()`, all called
+inside the same `tenant_scope(account["tenant_id"])` pattern `console`
+and `diary` already established. Nothing new to keep consistent; one
+more reader of data that already exists.

@@ -629,3 +629,37 @@ something buried in a mixed list.
 Old projects saved before this field existed default to `"self"` on
 read, no migration needed — they were, definitionally, already her own
 tool calls.
+
+---
+
+## Part 13 — The Archive page: her Corpus, made visible to you
+
+Per Loshem's direction (2026-08-31): a new page, reachable from the
+hamburger menu, showing the live state of her Corpus — projects
+(hers and requested), documents grouped and loose, images — exactly as
+she's organized them. Read-only: a window, not a second console.
+
+**Three tabs, one page (`/archive`):**
+- **Projects** — every living project, with its blurb, tag, and
+  whether it was her own initiative or asked for, plus every document
+  filed under it.
+- **Documents** — everything not currently grouped into a project.
+- **Images** — a simple thumbnail gallery.
+
+**Reading a document (`/archive/reference/{ref_id}`).** `read_slice()`
+caps each call at 40,000 characters — the bound that keeps a *model's*
+reads sensible. For a human reading in a browser, that's the wrong
+constraint, so the viewer loops calls server-side to assemble a
+larger single view (capped generously at 300,000 characters, with a
+plain notice if a document genuinely exceeds even that) rather than
+building a pagination UI for what's meant to be simple, occasional
+reading. Verified by a test that specifically checks the *end* of a
+50,000+ character document appears on the page, not just its first
+40,000 characters.
+
+**What's deliberately absent.** No edit, no save, no delete — nothing
+on this page writes anything. It reads the exact same storage her own
+tools already write to (`projects.py`, `references.py`, `images.py`),
+through the same `tenant_scope()` every other page already uses — no
+new storage, no new access path, just visibility into what already
+exists.
