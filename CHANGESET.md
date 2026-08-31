@@ -1,45 +1,64 @@
-# CHANGESET — Fix: 2.28 million characters, the real transport bug
+# CHANGESET — Images fixed correctly + documents get the same treatment
 
-Three files. Replaces the previous hermes_session.py again.
+Eleven files. This is real architecture work, not a patch — read the
+"what actually changed" section before applying, since two files
+change SHAPE, not just behavior.
 
-    seira_web/hermes_session.py       — THE FIX
-    tests/seira_core/test_dynamic_chat_ui.py  — a new test at the
-                                                reported scale
-    docs/seira/DECISIONS.md           — D147 appended
+## Replaces an existing file (7)
 
-## Her diagnosis was right, and precise
+    seira_bridge/__init__.py       — seira_image_recall now returns
+                                     Hermes's native multimodal shape;
+                                     two new tools (seira_reference_save,
+                                     seira_reference_tag);
+                                     seira_create_file auto-saves into
+                                     the tagged Corpus
+    seira_web/references.py        — full tagging added (mirrors
+                                     images.py exactly)
+    seira_web/images.py            — one new helper (get_image_data_uri)
+    seira_web/hermes_session.py    — recognizes the new envelope,
+                                     surfaces recall to the UI
+    seira_web/chat.py              — direct mode updated to match (see
+                                     "important" section below)
+    tests/seira_core/test_vision.py     — one test updated for the new
+                                          correct contract
+    tests/seira_core/test_bridge.py     — governance test updated with
+                                          the two new tool names
+    docs/seira/WIRING.md           — Part 10 appended
+    docs/seira/DECISIONS.md        — D148–D150 appended
 
-She correctly identified this as a transport problem, not a generation
-problem — same failure regardless of size, source, or whether the
-image was fresh or recalled. That pointed exactly at the right place.
+## New file (2)
 
-## What was actually happening
+    tests/seira_core/test_references_documents.py  (tagging tests added)
+    tests/seira_core/test_tagged_corpus.py          (new file)
 
-Recalling a stored image sends the model a real embedded image (so she
-can actually see it again) — a multimodal result with the base64 bytes
-attached. That's correct and necessary. The bug: my hermes-mode tool
-callback took that raw multimodal payload and pushed it straight into
-an SSE event with no processing at all — no truncation, no
-summarization. At any real image size, that's a multi-megabyte string
-blasted at the browser, which is exactly what hit a ceiling and got
-truncated.
+## Important — why chat.py had to change too
 
-## The fix
+`seira_image_recall` used to return a JSON string with a custom
+`__image_block__` key. chat.py's direct mode (still used for
+attachments and regeneration — hermes mode doesn't cover those yet)
+knew how to unpack that specific shape. Changing the return shape
+without updating chat.py would have silently broken direct mode. Both
+paths are updated and tested — this isn't a hermes-mode-only fix.
 
-Not a new transport — Hermes already has a utility built for exactly
-this (`_multimodal_text_summary`, used elsewhere for "logging,
-previews... providers that don't support multipart tool messages").
-Now applied before every tool result gets emitted, not just for
-images — so this can't quietly reappear on some other multimodal tool
-later. A 2.28-million-character test payload (matching the actual
-scale reported) proves the raw data never reaches the emitted event.
+## What actually changed, plainly
 
-## After applying
+**Images:** recall now returns Hermes's own real multimodal format
+instead of a lookalike. This is what makes the 2.28-million-character
+truncation bug structurally impossible going forward, not just less
+likely — verified by a test that calls Hermes's actual exemption
+function and confirms it recognizes the new shape.
 
-Redeploy, ask her to recall a previously generated image again. The
-image itself should now display normally, and the base64 bytes never
-touch the visible tool-activity feed at all (which is also correct —
-you were never meant to see raw base64 in the UI; only she needed it,
-to actually see the image herself).
+**Documents:** three sources — uploads (already worked), her own
+generated files (new), and anything she deliberately keeps from the
+web via the new `seira_reference_save` tool (new) — all write into one
+tagged store. Generated documents join it automatically, no extra
+step. Web content only gets saved when she chooses to, same discipline
+as her diary.
 
-Run `python -m pytest tests/seira_core/ -q` — 274 passed.
+## Testing
+
+289 passed (274 pre-existing + 15 new tagging tests + 8 new bridge
+tests, with 2 pre-existing tests correctly updated for the new
+contract — not weakened). Run:
+
+    python -m pytest tests/seira_core/ -q
