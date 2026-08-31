@@ -417,13 +417,42 @@ PROJECT_RECALL_SCHEMA = {
         "document, concatenated up to a size budget; anything that "
         "didn't fit is listed under omitted_for_space rather than "
         "silently dropped, so ask for that document individually via "
-        "seira_reference_recall if you need it."
+        "seira_reference_recall if you need it. For picking back up "
+        "after time away specifically — rather than a general survey — "
+        "seira_project_resume is usually the better tool: cheaper, and "
+        "it gets you to exactly where you left off rather than a "
+        "shotgun view of everything."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "project": {"type": "string", "description": "proj_id, tag, or name."},
             "mode": {"type": "string", "enum": ["manifest", "full"], "default": "manifest"},
+        },
+        "required": ["project"],
+    },
+}
+
+PROJECT_RESUME_SCHEMA = {
+    "name": "seira_project_resume",
+    "description": (
+        "Pick a project back up as if no time had passed. Returns the "
+        "most recent session-summary document (written via "
+        "seira_create_file/seira_reference_save with is_summary=True) "
+        "in full, plus a list of any earlier summaries for deeper "
+        "history. This is the tool for returning to a project after a "
+        "break, or after working on something else — cheaper and more "
+        "direct than seira_project_recall's full manifest, because it "
+        "goes straight to whatever checkpoint you left behind instead "
+        "of reconstructing context from every document in the project. "
+        "If no summary has ever been written, says so plainly and "
+        "falls back to the ordinary manifest — worth writing one next "
+        "time you conclude meaningful work here."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "project": {"type": "string", "description": "proj_id, tag, or name."},
         },
         "required": ["project"],
     },
@@ -538,6 +567,8 @@ REFERENCE_SAVE_SCHEMA = {
                       "description": "Where this came from — 'web' by default."},
             "project": {"type": "string",
                        "description": "Optional; proj_id, tag, or name of a living project to file this under directly."},
+            "is_summary": {"type": "boolean", "default": False,
+                          "description": "Set true when this document IS a session checkpoint — 'where things stand' written at the end of a working session, meant to let a later visit resume instantly via seira_project_resume rather than reconstructing context from scratch."},
         },
         "required": ["filename", "content"],
     },
@@ -556,7 +587,13 @@ CREATE_FILE_SCHEMA = {
         "The document also joins her tagged Corpus automatically — "
         "recall it later with seira_reference_recall using the "
         "reference_tag returned here, the same as any other saved "
-        "document."
+        "document. Writing a summary of a working session on a "
+        "project (format='md', is_summary=True, project=<the project>) "
+        "at a natural stopping point lets a later visit resume "
+        "instantly via seira_project_resume, as if no time had passed — "
+        "worth doing on your own initiative when concluding meaningful "
+        "work on a project, the same discretion you already have "
+        "elsewhere."
     ),
     "parameters": {
         "type": "object",
@@ -568,6 +605,8 @@ CREATE_FILE_SCHEMA = {
                         "description": "For format='code': python, javascript, etc."},
             "project": {"type": "string",
                        "description": "Optional; proj_id, tag, or name of a living project to file this under directly, instead of adding it retroactively later."},
+            "is_summary": {"type": "boolean", "default": False,
+                          "description": "Set true when this document is a session checkpoint for a project — see the description above."},
         },
         "required": ["format", "filename", "content"],
     },
@@ -738,6 +777,7 @@ class SeiraPsycheProvider(MemoryProvider):
                 DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA,
                 REFERENCE_TAG_SCHEMA, REFERENCE_SAVE_SCHEMA,
                 PROJECT_CREATE_SCHEMA, PROJECT_LIST_SCHEMA, PROJECT_RECALL_SCHEMA,
+                PROJECT_RESUME_SCHEMA,
                 PROJECT_ADD_REFERENCE_SCHEMA, PROJECT_UPDATE_BLURB_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
@@ -909,6 +949,7 @@ class SeiraPsycheProvider(MemoryProvider):
                             source=args.get("source", "web"),
                             tag=args.get("tag", ""),
                             project=proj_id,
+                            is_summary=bool(args.get("is_summary", False)),
                         )
                         return json.dumps({"ok": True, "ref_id": rec["ref_id"],
                                            "tag": rec["tag"]})
@@ -933,6 +974,10 @@ class SeiraPsycheProvider(MemoryProvider):
                 if tool_name == "seira_project_recall":
                     from seira_web import projects as projs
                     result = projs.recall(args["project"], mode=args.get("mode", "manifest"))
+                    return json.dumps({"ok": result["found"], **result})
+                if tool_name == "seira_project_resume":
+                    from seira_web import projects as projs
+                    result = projs.resume(args["project"])
                     return json.dumps({"ok": result["found"], **result})
                 if tool_name == "seira_project_add_reference":
                     from seira_web import projects as projs
@@ -976,6 +1021,7 @@ class SeiraPsycheProvider(MemoryProvider):
                             ref_rec = refs.save_reference(
                                 rec["filename"], args["content"], source="generated",
                                 project=proj_id,
+                                is_summary=bool(args.get("is_summary", False)),
                             )
                             ref_tag = ref_rec["tag"]
                         except ValueError as e:
