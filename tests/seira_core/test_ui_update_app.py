@@ -58,6 +58,93 @@ def test_console_exposes_all_tabs_data(client):
         assert marker in page
 
 
+def test_archive_page_empty_state(client):
+    page = client.get("/archive").text
+    assert "No living projects yet." in page
+    assert "No images saved yet." in page
+
+
+def test_archive_page_shows_projects_with_files_and_initiative_marker(client):
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        from seira_web import projects as projs
+        from seira_web import references as refs
+        proj = projs.create_project("Her Own Effort", blurb="A real summary",
+                                    initiative="self")
+        refs.save_reference("notes.md", "the actual content", project=proj["proj_id"])
+
+    page = client.get("/archive").text
+    assert "Her Own Effort" in page
+    assert "A real summary" in page
+    assert "her own initiative" in page
+    assert "notes.md" in page
+    # File contents must never appear on the archive index itself —
+    # only on the dedicated read-only viewer page.
+    assert "the actual content" not in page
+
+
+def test_archive_page_shows_loose_and_grouped_documents_separately(client):
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        from seira_web import projects as projs
+        from seira_web import references as refs
+        proj = projs.create_project("Grouped")
+        refs.save_reference("grouped.md", "grouped content", project=proj["proj_id"])
+        refs.save_reference("standalone.md", "standalone content")
+
+    page = client.get("/archive").text
+    assert "grouped.md" in page
+    assert "standalone.md" in page
+
+
+def test_archive_reference_viewer_shows_full_content_read_only(client):
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        from seira_web import references as refs
+        rec = refs.save_reference("readable.md", "the full real content here")
+
+    page = client.get(f"/archive/reference/{rec['ref_id']}").text
+    assert "the full real content here" in page
+    assert "readable.md" in page
+    # Read-only: the document itself has no edit/save controls — the
+    # shared nav's logout form is expected on every page and isn't
+    # what this checks.
+    content_start = page.index('class="frame"')
+    assert "<form" not in page[content_start:]
+
+
+def test_archive_reference_viewer_handles_missing_ref(client):
+    r = client.get("/archive/reference/does-not-exist")
+    assert r.status_code == 404
+
+
+def test_archive_reference_viewer_assembles_beyond_the_single_call_cap(client):
+    """read_slice() caps each call at 40,000 chars — the viewer must
+    loop to assemble a larger single view for a human reading in a
+    browser, not silently show only the first 40,000 characters."""
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        from seira_web import references as refs
+        big_text = "line content here\n" * 5000  # well over 40,000 chars
+        rec = refs.save_reference("big.md", big_text)
+
+    page = client.get(f"/archive/reference/{rec['ref_id']}").text
+    assert big_text[-50:] in page  # the END of the document, not just the first 40K
+
+
+def test_archive_link_present_in_navigation(client):
+    page = client.get("/console").text
+    assert '/archive' in page
+
+
 def _make_text_pdf_bytes() -> bytes:
     import io
     from pypdf import PdfWriter
