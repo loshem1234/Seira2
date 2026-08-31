@@ -176,6 +176,22 @@ def get_image_block(ref: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def get_image_data_uri(ref: str) -> Optional[str]:
+    """Return a data: URI for the image, or None if missing. Used by
+    Hermes's own native multimodal tool-result envelope
+    ({"_multimodal": True, "content": [...]}), which expects an
+    OpenAI-style image_url part rather than Anthropic's block shape —
+    Hermes converts to whatever the active provider actually needs at
+    request-build time, the same way its own built-in vision/browser
+    tools already do (see tools/vision_tools.py's
+    _build_native_vision_tool_result)."""
+    rec = resolve_ref(ref)
+    if rec is None:
+        return None
+    raw = (_images_dir() / rec["disk_name"]).read_bytes()
+    return f"data:{rec['media_type']};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
 def list_images() -> List[Dict[str, Any]]:
     return sorted(_load_index().values(), key=lambda r: r["created"], reverse=True)
 

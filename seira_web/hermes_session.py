@@ -129,6 +129,17 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
                     emit({"event": "file_created",
                          "filename": parsed.get("filename"),
                          "download_path": parsed.get("download_path")})
+        elif name == "seira_image_recall" and isinstance(display_result, dict):
+            # The native multimodal envelope (see seira_bridge's
+            # seira_image_recall handler) carries img_id/tag in
+            # meta — recalling an old image should show it in the
+            # chat the same way generating a new one does; the UI
+            # doesn't distinguish "just made" from "seen again",
+            # only whether an image is now on screen.
+            meta = display_result.get("meta") or {}
+            if meta.get("kind") == "image_recall":
+                emit({"event": "image_created", "img_id": meta.get("img_id"),
+                     "tag": meta.get("tag"), "used_references": []})
 
     def _reasoning(reasoning_text):
         # agent/chat_completion_helpers.py calls this with a plain string

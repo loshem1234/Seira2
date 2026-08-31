@@ -343,6 +343,35 @@ def run_turn(
                     "ok": False,
                     "error": f"Internal error handling {tu['name']}: {e}",
                 })
+            # seira_image_recall returns a genuine dict (Hermes's native
+            # multimodal envelope — see seira_bridge's handler and
+            # docs/seira/DECISIONS.md), not a json string like every
+            # other tool here. Anthropic's own tool_result content
+            # supports image blocks directly, so this converts the
+            # envelope's data: URI into that native shape rather than
+            # the old __image_block__-in-a-json-string convention this
+            # replaces (which depended on a sandbox environment being
+            # active to avoid truncating large images — not guaranteed,
+            # and the real cause of a live truncation failure). Every
+            # other branch below keeps working from a plain string,
+            # unaffected — only this one tool's result shape changed.
+            image_block = None
+            if isinstance(result_str, dict) and result_str.get("_multimodal"):
+                meta = result_str.get("meta") or {}
+                data_uri = ""
+                for part in result_str.get("content") or []:
+                    if part.get("type") == "image_url":
+                        data_uri = (part.get("image_url") or {}).get("url", "")
+                        break
+                if data_uri.startswith("data:") and ";base64," in data_uri:
+                    media_type, b64_data = data_uri[5:].split(";base64,", 1)
+                    image_block = {"type": "image", "source": {
+                        "type": "base64", "media_type": media_type, "data": b64_data}}
+                summary_text = result_str.get("text_summary", "")
+                result_str = json.dumps({"ok": True, **meta, "note": summary_text})
+                if meta.get("kind") == "image_recall":
+                    emit({"event": "image_created", "img_id": meta.get("img_id"),
+                         "tag": meta.get("tag"), "used_references": []})
             tool_events.append({"tool": tu["name"], "label": label,
                                 "result": result_str})
             emit({"event": "tool_result", "tool": tu["name"],
@@ -367,26 +396,14 @@ def run_turn(
                              "used_references": parsed_img.get("used_references", [])})
                 except (json.JSONDecodeError, TypeError):
                     pass
-            # Image recall is stored/logged as text (the marker, not raw
-            # bytes — same bounded-context discipline as everywhere else),
-            # but the tool_result actually sent to the model carries the
-            # real image block when present.
-            image_block = None
-            try:
-                parsed = json.loads(result_str)
-                if isinstance(parsed, dict) and parsed.get("__image_block__"):
-                    image_block = parsed.pop("__image_block__")
-                    result_str_for_log = json.dumps(parsed)
-                else:
-                    result_str_for_log = result_str
-            except (json.JSONDecodeError, TypeError):
-                result_str_for_log = result_str
+            # image_block was already resolved above (native multimodal
+            # envelope case); everything else is a plain string here.
             convs.append(conv_id, "tool", tool=tu["name"], label=label,
-                         input=tu.get("input") or {}, result=result_str_for_log)
+                         input=tu.get("input") or {}, result=result_str)
             if image_block is not None:
                 results.append({"type": "tool_result", "tool_use_id": tu["id"],
                                 "content": [image_block,
-                                           {"type": "text", "text": result_str_for_log}]})
+                                           {"type": "text", "text": result_str}]})
             else:
                 results.append({"type": "tool_result", "tool_use_id": tu["id"],
                                 "content": result_str})
