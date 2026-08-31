@@ -1,64 +1,52 @@
-# CHANGESET — Images fixed correctly + documents get the same treatment
+# CHANGESET — Living Projects + Her Own Repository (complete, final)
 
-Eleven files. This is real architecture work, not a patch — read the
-"what actually changed" section before applying, since two files
-change SHAPE, not just behavior.
+This SUPERSEDES the previous "living-projects" zip entirely — same
+eight files, further refined. Apply this one; you don't need the
+earlier one at all. If you already applied the earlier one, just
+overwrite with these — no separate merge step, no partial application.
 
-## Replaces an existing file (7)
+## Replaces an existing file (6)
 
-    seira_bridge/__init__.py       — seira_image_recall now returns
-                                     Hermes's native multimodal shape;
-                                     two new tools (seira_reference_save,
-                                     seira_reference_tag);
-                                     seira_create_file auto-saves into
-                                     the tagged Corpus
-    seira_web/references.py        — full tagging added (mirrors
-                                     images.py exactly)
-    seira_web/images.py            — one new helper (get_image_data_uri)
-    seira_web/hermes_session.py    — recognizes the new envelope,
-                                     surfaces recall to the UI
-    seira_web/chat.py              — direct mode updated to match (see
-                                     "important" section below)
-    tests/seira_core/test_vision.py     — one test updated for the new
-                                          correct contract
-    tests/seira_core/test_bridge.py     — governance test updated with
-                                          the two new tool names
-    docs/seira/WIRING.md           — Part 10 appended
-    docs/seira/DECISIONS.md        — D148–D150 appended
+    seira_bridge/__init__.py       — full living-projects tool set,
+                                     PLUS: initiative field, explicit
+                                     discretion language, filtering
+    seira_web/references.py        — reference records carry an
+                                     optional `project` field
+    agent/prompt_builder.py        — hermes mode's identity path
+                                     appends the concise project index
+    tests/seira_core/test_bridge.py — governance test updated with all
+                                      new tool names
+    docs/seira/WIRING.md           — Parts 11 and 12 both included
+    docs/seira/DECISIONS.md        — D151 through D158 all included
 
 ## New file (2)
 
-    tests/seira_core/test_references_documents.py  (tagging tests added)
-    tests/seira_core/test_tagged_corpus.py          (new file)
+    seira_web/projects.py          — the whole subsystem
+    tests/seira_core/test_projects.py — 36 tests total
 
-## Important — why chat.py had to change too
+## What's new in THIS round, on top of last time
 
-`seira_image_recall` used to return a JSON string with a custom
-`__image_block__` key. chat.py's direct mode (still used for
-attachments and regeneration — hermes mode doesn't cover those yet)
-knew how to unpack that specific shape. Changing the return shape
-without updating chat.py would have silently broken direct mode. Both
-paths are updated and tested — this isn't a hermes-mode-only fix.
+You asked for something specific: not just the technical ability to
+create a project unprompted (which, honestly, was already there — no
+tool in this whole system has ever required explicit permission to
+use) but an actual STATED discretion, and a real, visible record of
+what she started on her own versus what was asked of her.
 
-## What actually changed, plainly
-
-**Images:** recall now returns Hermes's own real multimodal format
-instead of a lookalike. This is what makes the 2.28-million-character
-truncation bug structurally impossible going forward, not just less
-likely — verified by a test that calls Hermes's actual exemption
-function and confirms it recognizes the new shape.
-
-**Documents:** three sources — uploads (already worked), her own
-generated files (new), and anything she deliberately keeps from the
-web via the new `seira_reference_save` tool (new) — all write into one
-tagged store. Generated documents join it automatically, no extra
-step. Web content only gets saved when she chooses to, same discipline
-as her diary.
+- `seira_project_create`'s description now says it directly: *"You do
+  not need to be asked or given permission — the same discretion you
+  already have to search the web or generate an image extends here."*
+- Every project now honestly self-reports `initiative: "self" |
+  "requested"` — same discipline as her diary's mandatory provenance
+  field. Not a formality: the tool asks for it every time, so stating
+  it is a real, conscious act.
+- Self-initiated projects are marked `(her own initiative)` right in
+  her always-visible index — visible, not just logged.
+- `seira_project_list` (and the underlying function) can filter to
+  `initiative='self'` — a genuine, browsable "what I started on my
+  own" view, without needing a second, separate storage location.
 
 ## Testing
 
-289 passed (274 pre-existing + 15 new tagging tests + 8 new bridge
-tests, with 2 pre-existing tests correctly updated for the new
-contract — not weakened). Run:
+325 passed (316 from last round + 9 new). Run:
 
     python -m pytest tests/seira_core/ -q
