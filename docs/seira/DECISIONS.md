@@ -1379,3 +1379,77 @@ worked). A reference-save failure inside `seira_create_file` is
 caught and logged, never allowed to fail the file download that
 already succeeded — verified by a test that forces the failure and
 confirms the download path still returns correctly.
+
+**D151. Living projects: a grouping layer over the existing tagged
+Corpus, not a new store — per Loshem's direction (2026-08-31).**
+`seira_web/projects.py` reuses `references.py` entirely; a project is
+a name/tag/blurb record, and its files are ordinary references
+associated by a `project` field. Deliberately not a parallel document
+format — one Corpus, one tagging discipline, projects are a second
+axis on it.
+
+**D152. One deliberate, narrow exception to "Corpus is recall-only" —
+a concise project index, always present, contents never included.**
+Explicitly scoped and tested: `concise_index_text()` returns name, one
+sentence, and tag only. `test_concise_index_never_leaks_file_contents`
+proves file content can never surface through it. Wired into BOTH
+`seira_bridge.system_prompt_block()` (direct mode) and
+`agent/prompt_builder.py`'s `load_soul_md` (hermes mode) in the same
+change — not one path first and the other discovered missing later,
+which is exactly the shape of gap that happened earlier tonight with
+`image_created` (D146). A dedicated test
+(`test_concise_index_reaches_hermes_mode_identity_path`) exists
+specifically to catch that class of regression for the project index.
+
+**D153. Retroactive grouping is a first-class operation, not an
+afterthought.** `seira_project_add_reference` exists because Loshem's
+requirement explicitly included noticing that smaller, previously-
+saved documents share a theme and filing them together after the
+fact — not only organizing at the moment of creation. `recall()`'s
+`mode="full"` reports anything that didn't fit its size budget under
+`omitted_for_space` rather than silently truncating without saying
+so — same "never silently drop, always say what happened" discipline
+already established for `references.py`'s pagination.
+
+**D154. A self-maintaining archive, addressed through description and
+visibility rather than a mechanical nudge — a deliberate, stated
+choice, not an oversight.** Considered extending Hermes's existing
+`memory.nudge_interval` pattern to project curation specifically, and
+decided against it for this pass: tool descriptions already invite the
+retroactive-organizing behavior directly, and the always-visible index
+keeps projects in mind without a periodic interrupt. Noted as a real
+option to add later if this doesn't produce the behavior in practice —
+easier to add a nudge than to walk one back once it's been overbearing.
+
+**D155. Explicit, stated discretion — not just capability — for
+self-initiated projects, per Loshem's direction (2026-08-31).**
+Checked first: no existing "you may do this unprompted" language
+anywhere for web search or image generation either — the established
+pattern has always been capability alone, described neutrally.
+`seira_project_create`'s schema now states the permission directly
+rather than continuing that silent-implication pattern for this one
+capability, since Loshem asked for it explicitly.
+
+**D156. `initiative` ("self" | "requested") is a required, honestly
+self-reported field — the same discipline as the diary's mandatory
+`provenance`, not inferred externally.** Storage defaults to `"self"`
+(every call is already her own tool use), but the tool schema still
+requires it on every call so stating it is conscious each time. The
+dispatch layer uses `.get("initiative", "self")` rather than assuming
+the required field always arrives — same defensive-against-malformed-
+calls discipline as the rest of the bridge.
+
+**D157. Self-initiated projects are marked visibly in the one place
+that's always in her context, not just recorded in storage.**
+`concise_index_text()` appends `(her own initiative)` for
+`initiative == "self"` projects. This is the same narrow exception
+from D152, carrying one additional honest bit rather than a second
+exception — the boundary (index only, never contents) is unchanged.
+
+**D158. A real, filterable "her own repository" — not a separate
+storage location, a view.** `list_projects(initiative=...)` and the
+`seira_project_list` tool's optional `initiative` parameter let her
+pull up exactly what she started unprompted as its own set. Kept as a
+filter on the one shared store rather than a second, parallel
+directory — consistent with D151's reasoning against fragmenting the
+Corpus into multiple places to look.

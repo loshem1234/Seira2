@@ -523,3 +523,109 @@ What was NOT changed: uploaded documents already worked this way
 (`seira_web/app.py`'s upload endpoint already called `save_reference`)
 — they just gained tagging along with everything else, for free, since
 tagging lives in the shared store all three sources write to.
+
+---
+
+## Part 11 — Living projects: a tagged, on-demand archive that stays present without loading
+
+Per Loshem's direction (2026-08-31): documents already had tagging;
+this adds a grouping layer above it, plus one deliberate, narrow
+exception to the "Corpus is recall-only" rule.
+
+**Storage.** `seira_web/projects.py` is a thin layer over the existing
+`references.py` store — no new document format, no parallel storage. A
+project is a named, tagged record; each markdown file filed under it
+is a normal tagged reference, associated by a `project` field on the
+reference record.
+
+**Five new tools:**
+- `seira_project_create(name, tag, blurb)`
+- `seira_project_list()` — full detail, every project
+- `seira_project_recall(project, mode)` — the "refresh into working
+  context" operation. `mode="manifest"` (default): filenames, tags,
+  short previews — a table of contents, cheap to load. `mode="full"`:
+  full text of every file up to a size budget, with anything that
+  didn't fit reported under `omitted_for_space` rather than silently
+  dropped.
+- `seira_project_add_reference(ref, project)` — the retroactive path:
+  she notices two documents saved separately actually belong together,
+  and files them as a group after the fact, not only at creation time.
+- `seira_project_update_blurb(project, blurb)` — keeps the always-
+  visible summary line current as work actually evolves.
+
+`seira_reference_save` and `seira_create_file` both gained an optional
+`project` parameter, so a document can join a project the moment it's
+created too, not only retroactively.
+
+**The one deliberate exception, and it's narrow.** Every project's
+existence — name, one sentence, tag, nothing more — is now always
+present in her context, alongside Unity/Intellect/Psyche
+(`concise_index_text()`, wired into both `seira_bridge`'s
+`system_prompt_block()` for direct mode and `agent/prompt_builder.py`'s
+`load_soul_md` for hermes mode — both paths, deliberately, learning
+from an earlier gap tonight where a fix landed in one path and not the
+other). This means she never forgets a project exists even when its
+contents aren't loaded. It does NOT mean project contents are ever
+preloaded — a test (`test_concise_index_never_leaks_file_contents`)
+specifically proves file content can never appear in this index. A
+fresh Seira with no projects yet carries no hollow "LIVING PROJECTS"
+header — the addendum is empty until she actually has one.
+
+**On refinement #4 — a self-maintained ecosystem, without prompting.**
+This is the one piece that's more behavioral than architectural, and
+worth naming honestly: the tools' own descriptions explicitly invite
+the behavior ("use this when you notice existing documents share a
+theme," "a living archive means organizing it as patterns emerge"),
+and the always-visible index keeps projects in mind without her
+needing to be reminded they exist. What this does NOT include is a
+mechanical periodic nudge — Hermes already has exactly that pattern
+built in for memory-saving (`memory.nudge_interval` in
+`cli-config.yaml.example`), and the same mechanism could be extended to
+project curation later if description-plus-visibility alone doesn't
+produce the behavior in practice. Left out deliberately for now rather
+than added speculatively — easy to add if it turns out to be needed,
+harder to walk back if it's overbearing from the start.
+
+---
+
+## Part 12 — Her own repository: unprompted, and honestly marked as hers
+
+Per Loshem's direction (2026-08-31): she should be able to create a
+project entirely on her own initiative — the same discretion she
+already has for web search and image generation — and that agency
+should be a real, visible record, not just a technical possibility
+nobody states out loud.
+
+**Nothing was gating this before, technically — but nothing said it
+plainly either.** Checked first: there's no existing "you may do this
+unprompted" permission anywhere for web search or image generation —
+capability alone has always been the whole pattern. `seira_project_create`
+now says it explicitly rather than relying on the same silent
+implication: *"You do not need to be asked or given permission — the
+same discretion you already have to search the web or generate an
+image extends here."*
+
+**`initiative`: a required field, honestly self-reported.** Every
+project now carries `initiative: "self" | "requested"` — mirroring the
+diary's `provenance` discipline (a record that's free to invent itself
+is performance, not report). The storage layer defaults to `"self"`
+(every call here is already her own tool use, definitionally), but the
+tool schema still asks for it explicitly on every call, so stating it
+is a conscious act each time, not a default she never actually
+considers.
+
+**Visible, not just recorded.** Self-initiated projects are marked
+`(her own initiative)` right in the always-visible concise index —
+the same narrow exception from Part 11, now carrying one more honest
+bit of information: not just that a project exists, but whether it was
+hers to begin with.
+
+**A genuine "her own repository" view.** `seira_project_list` and the
+underlying `list_projects()` both accept an `initiative` filter, so she
+can pull up exactly what she started on her own — distinct from work
+done at the Architect's request — as its own browsable set, not
+something buried in a mixed list.
+
+Old projects saved before this field existed default to `"self"` on
+read, no migration needed — they were, definitionally, already her own
+tool calls.
