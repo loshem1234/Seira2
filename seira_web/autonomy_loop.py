@@ -1,5 +1,28 @@
-"""seira_web.autonomy_loop — the real background task behind
+"""seira_web.autonomy_loop — the real background work behind
 autonomous mode.
+
+HISTORY, and why this file uses plain threading rather than asyncio:
+the first version scheduled the loop via ``asyncio.create_task()``
+from inside a synchronous FastAPI route handler. That's a real,
+structural bug, not a subtle one — synchronous route handlers run in a
+thread-pool worker thread, and ``asyncio.create_task()`` requires an
+actually-running event loop *in the calling thread*, which a worker
+thread doesn't have. It raised ``RuntimeError: no running event loop``
+every time, silently, after the run's state was already marked
+"active" — leaving every run stuck at turn 0 forever, nothing ever
+entering the chat, exactly the live-reported symptom (2026-08-31).
+Reproduced and confirmed directly before writing this fix, not
+guessed at.
+
+The actual, correct fix is simpler than the code it replaces:
+``seira_web/tripwire_loop.py`` already solves exactly this class of
+problem — background work that needs to run independently of any one
+HTTP request — with a plain ``threading.Thread`` and ``time.sleep()``.
+Everything this loop calls (``hermes_session.run_turn_via_hermes``,
+``conversations.append``, etc.) is already synchronous, so there was
+never a real need for asyncio here at all; it was reached for by
+habit, not because the work required it. This file now mirrors
+tripwire_loop.py's proven shape instead.
 
 Two modes, per Loshem's direction (2026-08-31):
   - "exploration": she acts freely and unprompted — search, generate,
@@ -9,27 +32,29 @@ Two modes, per Loshem's direction (2026-08-31):
     producing anything for the Architect to evaluate.
 
 Honest about the kill switch, stated once here and again in the UI
-copy so nobody's expectations are quietly mismatched: the underlying
-turn call (hermes_session.run_turn_via_hermes) is synchronous, run via
-asyncio.to_thread — Python cannot forcibly interrupt a running thread.
-Stop takes effect before the next turn starts. A turn already in
-flight when stop is requested is allowed to finish (its output is
-saved, not discarded), and the loop then exits without starting
-another.
+copy so nobody's expectations are quietly mismatched: a turn's actual
+work runs on a one-off worker thread (via ThreadPoolExecutor, bounded
+by TURN_TIMEOUT_SECONDS) that Python cannot forcibly kill. Stop takes
+effect before the next turn starts. A turn already in flight when stop
+is requested is allowed to finish (its output is saved, not
+discarded), and the loop then exits without starting another. A turn
+that exceeds its timeout makes the LOOP give up waiting and stop; the
+underlying call may still be running, orphaned, and will write its
+result whenever it eventually finishes on its own.
 
 Real safety defaults, chosen deliberately and stated plainly rather
 than picked silently — confirmed with Loshem (2026-08-31): ~60 seconds
 between actions, and an automatic cap (turns or wall-clock time,
 whichever comes first) so a forgotten "on" toggle can't run forever
-unattended. All three are overridable via env var without a code
-change.
+unattended. All overridable via env var without a code change.
 """
 
 from __future__ import annotations
 
-import asyncio
+import concurrent.futures
 import logging
 import os
+import threading
 import time
 from typing import Dict
 
@@ -40,19 +65,6 @@ logger = logging.getLogger(__name__)
 PACING_SECONDS = int(os.environ.get("SEIRA_AUTONOMY_PACING_SECONDS", "60"))
 MAX_TURNS = int(os.environ.get("SEIRA_AUTONOMY_MAX_TURNS", "200"))
 MAX_RUNTIME_HOURS = float(os.environ.get("SEIRA_AUTONOMY_MAX_RUNTIME_HOURS", "4"))
-# A single turn can legitimately run long — real tool use, possibly
-# delegation to a subagent — but "long" must still have a bound. Real,
-# live gap found 2026-08-31: with no timeout, a stuck or unusually slow
-# turn left the Architect watching "finishing her current turn, then
-# stopping…" with no way to know if it was still genuinely working or
-# actually hung, for as long as the turn happened to take. Honest about
-# what this timeout can and can't do: asyncio.wait_for gives up
-# WAITING on the underlying thread and the loop treats it as a failed
-# turn (same as any other exception — stops rather than silently
-# retrying), but Python cannot kill the thread itself; if the
-# underlying call was genuinely still running, it keeps running
-# harmlessly in the background until it finishes on its own, orphaned,
-# writing its result to the conversation whenever that happens.
 TURN_TIMEOUT_SECONDS = int(os.environ.get("SEIRA_AUTONOMY_TURN_TIMEOUT_SECONDS", "600"))
 
 EXPLORATION_PROMPT = (
@@ -77,26 +89,35 @@ CONTEMPLATION_PROMPT = (
     "when nothing is being asked of you."
 )
 
-# tenant_id -> the live asyncio.Task, so a stop request can find and
-# eventually await it rather than leaving orphaned background work.
-_tasks: Dict[str, asyncio.Task] = {}
+# One worker per turn is all that's needed — turns are already run
+# sequentially by the loop itself, never concurrently for one tenant.
+_turn_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="seira-autonomy-turn")
+
+# tenant_id -> the live background Thread, for bookkeeping/tests. A
+# plain Thread, like a plain asyncio Task, cannot be forcibly killed —
+# this is here for status/testability, not as a cancellation handle.
+_threads: Dict[str, threading.Thread] = {}
 
 
 def _prompt_for(mode: str) -> str:
     return EXPLORATION_PROMPT if mode == "exploration" else CONTEMPLATION_PROMPT
 
 
-async def _run_one_turn(tenant_id: str, conv_id: str, prompt: str) -> None:
-    """The actual model turn — synchronous work, run off the event
-    loop thread. Appends both the autonomous prompt and her reply to
-    the conversation, tagged `autonomous: True` so the UI can show
-    them distinctly from anything the Architect actually typed. Every
-    live event (tool calls, reasoning, streamed text) is published for
-    any browser currently watching this conversation, the same
-    activity a normal turn already shows — this was NOT true in the
-    first version of this loop, which discarded every event
-    (emit=lambda e: None); real, live gap found 2026-08-31: nothing
-    about an autonomous turn was visible while it happened."""
+def _run_one_turn(tenant_id: str, conv_id: str, prompt: str) -> None:
+    """The actual model turn. Appends both the autonomous prompt and
+    her reply to the conversation, tagged `autonomous: True` so the UI
+    can show them distinctly from anything the Architect actually
+    typed. Every live event (tool calls, reasoning, streamed text) is
+    published for any browser currently watching this conversation,
+    the same activity a normal turn already shows.
+
+    Bounded by TURN_TIMEOUT_SECONDS via the caller, which runs this on
+    a worker thread and waits on it with a timeout — Python cannot
+    time out a blocking call from within its own thread, so this
+    function itself has no timeout logic; the caller's
+    ThreadPoolExecutor + future.result(timeout=...) provides it.
+    """
     from seira_core.tenancy import tenant_scope
     from seira_web import conversations as convs
     from seira_web import live_events
@@ -108,29 +129,26 @@ async def _run_one_turn(tenant_id: str, conv_id: str, prompt: str) -> None:
         except Exception:
             pass  # a broadcast hiccup must never break the turn itself
 
-    def _run():
-        with tenant_scope(tenant_id):
-            user_rec = convs.append(conv_id, "user", text=prompt, autonomous=True)
-            # Not "user_recorded": that event exists to fill in an ID on
-            # a bubble the browser already rendered optimistically
-            # before the server responded, for a message someone typed.
-            # Nothing is pre-rendered here — nobody typed anything — so
-            # the live feed needs the actual text too, to create the
-            # bubble from scratch.
-            _emit({"event": "autonomous_turn_started", "id": user_rec["id"],
-                  "text": prompt})
-            history = convs.model_history(conv_id)
-            result = run_turn_via_hermes(conv_id, prompt, history, _emit)
-            # run_turn_via_hermes already emits its own "reply" event
-            # internally — not re-emitted here, or the live feed would
-            # finalize the same reply twice.
-            convs.append(conv_id, "assistant", text=result["reply"], autonomous=True)
-            convs.touch(conv_id)
-
-    await asyncio.wait_for(asyncio.to_thread(_run), timeout=TURN_TIMEOUT_SECONDS)
+    with tenant_scope(tenant_id):
+        user_rec = convs.append(conv_id, "user", text=prompt, autonomous=True)
+        # Not "user_recorded": that event exists to fill in an ID on a
+        # bubble the browser already rendered optimistically before
+        # the server responded, for a message someone typed. Nothing
+        # is pre-rendered here — nobody typed anything — so the live
+        # feed needs the actual text too, to create the bubble from
+        # scratch.
+        _emit({"event": "autonomous_turn_started", "id": user_rec["id"],
+              "text": prompt})
+        history = convs.model_history(conv_id)
+        result = run_turn_via_hermes(conv_id, prompt, history, _emit)
+        # run_turn_via_hermes already emits its own "reply" event
+        # internally — not re-emitted here, or the live feed would
+        # finalize the same reply twice.
+        convs.append(conv_id, "assistant", text=result["reply"], autonomous=True)
+        convs.touch(conv_id)
 
 
-async def _loop(tenant_id: str, conv_id: str, mode: str) -> None:
+def _loop(tenant_id: str, conv_id: str, mode: str) -> None:
     from seira_core.tenancy import tenant_scope
     from seira_core.tripwire import is_halted
 
@@ -158,8 +176,9 @@ async def _loop(tenant_id: str, conv_id: str, mode: str) -> None:
                     logger.info("Autonomy loop for %s: max turns (%s) reached, "
                                "stopping", tenant_id, MAX_TURNS)
                     break
-                await _run_one_turn(tenant_id, conv_id, prompt)
-            except asyncio.TimeoutError:
+                future = _turn_executor.submit(_run_one_turn, tenant_id, conv_id, prompt)
+                future.result(timeout=TURN_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
                 # The likely real cause of the exact symptom reported
                 # live (2026-08-31): "finishing her current turn, then
                 # stopping" stuck with no end in sight. Now bounded —
@@ -179,18 +198,20 @@ async def _loop(tenant_id: str, conv_id: str, mode: str) -> None:
 
             if autonomy.is_stopping(tenant_id):
                 break
-            await asyncio.sleep(PACING_SECONDS)
+            time.sleep(PACING_SECONDS)
     finally:
         autonomy.clear(tenant_id)
-        _tasks.pop(tenant_id, None)
+        _threads.pop(tenant_id, None)
 
 
 def start(tenant_id: str, conv_id: str, mode: str) -> Dict:
     """Raises ValueError (via autonomy.start) if already running for
     this tenant — never silently replaces an active run."""
     rec = autonomy.start(tenant_id, conv_id, mode)
-    task = asyncio.create_task(_loop(tenant_id, conv_id, mode))
-    _tasks[tenant_id] = task
+    t = threading.Thread(target=_loop, args=(tenant_id, conv_id, mode),
+                         name=f"seira-autonomy-{tenant_id}", daemon=True)
+    _threads[tenant_id] = t
+    t.start()
     return rec
 
 
