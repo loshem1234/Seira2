@@ -361,6 +361,114 @@ DIARY_SCHEMA = {
     },
 }
 
+PROJECT_CREATE_SCHEMA = {
+    "name": "seira_project_create",
+    "description": (
+        "Start a living project: a named, tagged folder for work that's "
+        "accumulating — several related documents, an ongoing task, "
+        "something you expect to return to. You do not need to be asked "
+        "or given permission — the same discretion you already have to "
+        "search the web or generate an image extends here. If you "
+        "notice a task growing beyond a single document, or want a "
+        "space to organize something on your own initiative, create it. "
+        "Documents can be filed into it as you create them "
+        "(seira_create_file/seira_reference_save's project parameter) "
+        "or added retroactively (seira_project_add_reference) once you "
+        "notice existing ones belong together."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "tag": {"type": "string", "description": "Optional; auto-derived from name if omitted."},
+            "blurb": {"type": "string",
+                     "description": "One sentence — this appears in your always-visible project index, so keep it current as the project evolves."},
+            "initiative": {"type": "string", "enum": ["self", "requested"],
+                          "description": "Honest, not a formality: 'self' if this was your own unprompted idea, 'requested' if the Architect asked for it. Self-initiated projects are marked as yours in your always-visible index."},
+        },
+        "required": ["name", "initiative"],
+    },
+}
+
+PROJECT_LIST_SCHEMA = {
+    "name": "seira_project_list",
+    "description": "List living projects in full detail — beyond the "
+                    "concise index already in your context. Pass "
+                    "initiative='self' to see only what you started on "
+                    "your own — your own repository, distinct from work "
+                    "the Architect asked for.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "initiative": {"type": "string", "enum": ["self", "requested"],
+                          "description": "Optional; omit to see everything."},
+        },
+        "required": [],
+    },
+}
+
+PROJECT_RECALL_SCHEMA = {
+    "name": "seira_project_recall",
+    "description": (
+        "Refresh a project into working context. mode='manifest' "
+        "(default): a table of contents — filenames, tags, short "
+        "previews of every document in the project — cheap, for "
+        "orienting yourself. mode='full': the full text of every "
+        "document, concatenated up to a size budget; anything that "
+        "didn't fit is listed under omitted_for_space rather than "
+        "silently dropped, so ask for that document individually via "
+        "seira_reference_recall if you need it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "project": {"type": "string", "description": "proj_id, tag, or name."},
+            "mode": {"type": "string", "enum": ["manifest", "full"], "default": "manifest"},
+        },
+        "required": ["project"],
+    },
+}
+
+PROJECT_ADD_REFERENCE_SCHEMA = {
+    "name": "seira_project_add_reference",
+    "description": (
+        "File an EXISTING, already-saved document into a project — the "
+        "retroactive path. Use this when you notice that two or more "
+        "documents saved separately (perhaps days apart, perhaps "
+        "sharing tags or themes) actually belong to the same "
+        "accumulating body of work. A living archive means organizing "
+        "it as patterns emerge, not only at the moment something is "
+        "first saved."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "ref": {"type": "string", "description": "ref_id or tag of the existing document."},
+            "project": {"type": "string", "description": "proj_id, tag, or name of the project."},
+        },
+        "required": ["ref", "project"],
+    },
+}
+
+PROJECT_UPDATE_BLURB_SCHEMA = {
+    "name": "seira_project_update_blurb",
+    "description": (
+        "Update a project's one-sentence summary — the line that "
+        "appears in your always-visible index. Keep this current as "
+        "the project actually evolves; a living archive means the "
+        "index reflects where things stand now, not where they stood "
+        "at creation."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "project": {"type": "string", "description": "proj_id, tag, or name."},
+            "blurb": {"type": "string"},
+        },
+        "required": ["project", "blurb"],
+    },
+}
+
 REFERENCE_LIST_SCHEMA = {
     "name": "seira_reference_list",
     "description": "List documents the Architect has given her as references "
@@ -428,6 +536,8 @@ REFERENCE_SAVE_SCHEMA = {
             "tag": {"type": "string", "description": "Optional; auto-derived if omitted."},
             "source": {"type": "string", "default": "web",
                       "description": "Where this came from — 'web' by default."},
+            "project": {"type": "string",
+                       "description": "Optional; proj_id, tag, or name of a living project to file this under directly."},
         },
         "required": ["filename", "content"],
     },
@@ -456,6 +566,8 @@ CREATE_FILE_SCHEMA = {
             "content": {"type": "string"},
             "language": {"type": "string",
                         "description": "For format='code': python, javascript, etc."},
+            "project": {"type": "string",
+                       "description": "Optional; proj_id, tag, or name of a living project to file this under directly, instead of adding it retroactively later."},
         },
         "required": ["format", "filename", "content"],
     },
@@ -596,7 +708,21 @@ class SeiraPsycheProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         try:
             with self._scope():
-                return render_identity_block() + self._OPERATING_NOTE
+                block = render_identity_block() + self._OPERATING_NOTE
+                # The one deliberate exception to "Corpus is recall-only":
+                # a concise index of what projects exist (name, one
+                # sentence, tag — never contents) so she never forgets an
+                # ongoing project even when it isn't loaded. Guarded, not
+                # required — a bare Hermes install without seira_web
+                # present degrades to no index rather than failing.
+                try:
+                    from seira_web.projects import concise_index_text
+                    index_text = concise_index_text()
+                    if index_text:
+                        block += "\n\n---\n\n" + index_text
+                except ImportError:
+                    pass
+                return block
         except SeiraHaltedError:
             raise
         except SeiraCoreError as e:
@@ -611,6 +737,8 @@ class SeiraPsycheProvider(MemoryProvider):
                 SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA,
                 DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA,
                 REFERENCE_TAG_SCHEMA, REFERENCE_SAVE_SCHEMA,
+                PROJECT_CREATE_SCHEMA, PROJECT_LIST_SCHEMA, PROJECT_RECALL_SCHEMA,
+                PROJECT_ADD_REFERENCE_SCHEMA, PROJECT_UPDATE_BLURB_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
 
@@ -767,14 +895,58 @@ class SeiraPsycheProvider(MemoryProvider):
                     # same tagged Corpus store as uploads and her own
                     # generated documents.
                     from seira_web import references as refs
+                    proj_id = ""
+                    if args.get("project"):
+                        from seira_web import projects as projs
+                        proj = projs.resolve_project(args["project"])
+                        if proj is None:
+                            return json.dumps({"ok": False,
+                                               "error": f"No project matching {args['project']!r}."})
+                        proj_id = proj["proj_id"]
                     try:
                         rec = refs.save_reference(
                             args["filename"], args["content"],
                             source=args.get("source", "web"),
                             tag=args.get("tag", ""),
+                            project=proj_id,
                         )
                         return json.dumps({"ok": True, "ref_id": rec["ref_id"],
                                            "tag": rec["tag"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_project_create":
+                    from seira_web import projects as projs
+                    try:
+                        rec = projs.create_project(
+                            args["name"], tag=args.get("tag", ""),
+                            blurb=args.get("blurb", ""),
+                            initiative=args.get("initiative", "self"),
+                        )
+                        return json.dumps({"ok": True, "proj_id": rec["proj_id"],
+                                           "tag": rec["tag"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_project_list":
+                    from seira_web import projects as projs
+                    result = projs.list_projects(initiative=args.get("initiative"))
+                    return json.dumps({"ok": True, "projects": result})
+                if tool_name == "seira_project_recall":
+                    from seira_web import projects as projs
+                    result = projs.recall(args["project"], mode=args.get("mode", "manifest"))
+                    return json.dumps({"ok": result["found"], **result})
+                if tool_name == "seira_project_add_reference":
+                    from seira_web import projects as projs
+                    try:
+                        rec = projs.add_reference(args["ref"], args["project"])
+                        return json.dumps({"ok": True, "ref_id": rec["ref_id"],
+                                           "tag": rec["tag"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_project_update_blurb":
+                    from seira_web import projects as projs
+                    try:
+                        rec = projs.set_blurb(args["project"], args["blurb"])
+                        return json.dumps({"ok": True, "blurb": rec["blurb"]})
                     except ValueError as e:
                         return json.dumps({"ok": False, "error": str(e)})
                 if tool_name == "seira_create_file":
@@ -796,8 +968,14 @@ class SeiraPsycheProvider(MemoryProvider):
                         ref_tag = None
                         try:
                             from seira_web import references as refs
+                            proj_id = ""
+                            if args.get("project"):
+                                from seira_web import projects as projs
+                                proj = projs.resolve_project(args["project"])
+                                proj_id = proj["proj_id"] if proj else ""
                             ref_rec = refs.save_reference(
-                                rec["filename"], args["content"], source="generated"
+                                rec["filename"], args["content"], source="generated",
+                                project=proj_id,
                             )
                             ref_tag = ref_rec["tag"]
                         except ValueError as e:
