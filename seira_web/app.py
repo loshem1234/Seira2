@@ -21,7 +21,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -277,10 +277,12 @@ def create_app(llm_client_factory=None) -> FastAPI:
             active_id = request.query_params.get("c") or conv_list[0]["conv_id"]
             history = convs.display_records(active_id)
         from seira_web.chat import AVAILABLE_MODELS, DEFAULT_MODEL
+        from seira_web import autonomy_loop
         return templates.TemplateResponse(request, "chat.html", {
             "conversations": conv_list, "active_id": active_id,
             "history": history, "available_models": AVAILABLE_MODELS,
-            "default_model": DEFAULT_MODEL})
+            "default_model": DEFAULT_MODEL,
+            "autonomy_pacing_seconds": autonomy_loop.PACING_SECONDS})
 
     @app.post("/api/conversations")
     def new_conversation(account: dict = Depends(require_account)):
@@ -683,6 +685,38 @@ def create_app(llm_client_factory=None) -> FastAPI:
                                  "error": f"{type(e).__name__}: {e}"},
                                 status_code=200)
         return JSONResponse(inventory)
+
+    @app.post("/api/autonomy/start")
+    def autonomy_start(request: Request, account: dict = Depends(require_account),
+                       body: dict = Body(...)):
+        from seira_web import autonomy_loop
+        if os.environ.get("SEIRA_SANCTUM_RUNTIME", "direct") != "hermes":
+            raise HTTPException(status_code=400,
+                                detail="Autonomous mode needs her full capability "
+                                       "set (search, generation, project tools), "
+                                       "which requires SEIRA_SANCTUM_RUNTIME=hermes.")
+        mode = body.get("mode")
+        conv_id = body.get("conv_id")
+        if not conv_id:
+            raise HTTPException(status_code=400, detail="conv_id is required.")
+        if mode not in ("exploration", "contemplation"):
+            raise HTTPException(status_code=400, detail="mode must be "
+                                "'exploration' or 'contemplation'.")
+        try:
+            rec = autonomy_loop.start(account["tenant_id"], conv_id, mode)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return JSONResponse(rec)
+
+    @app.post("/api/autonomy/stop")
+    def autonomy_stop(account: dict = Depends(require_account)):
+        from seira_web import autonomy_loop
+        return JSONResponse(autonomy_loop.stop(account["tenant_id"]))
+
+    @app.get("/api/autonomy/status")
+    def autonomy_status(account: dict = Depends(require_account)):
+        from seira_web import autonomy_loop
+        return JSONResponse(autonomy_loop.status(account["tenant_id"]))
 
     @app.get("/archive", response_class=HTMLResponse)
     def archive_page(request: Request, account: dict = Depends(require_account)):
