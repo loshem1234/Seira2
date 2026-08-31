@@ -113,9 +113,13 @@ class _FakeConvs:
     the loop wrote, without touching real disk storage."""
     def __init__(self):
         self.appended = []
+        self._next_id = 1
 
     def append(self, conv_id, kind, **fields):
+        rec = {"id": self._next_id, "kind": kind, **fields}
+        self._next_id += 1
         self.appended.append((conv_id, kind, fields))
+        return rec
 
     def model_history(self, conv_id):
         return []
@@ -212,3 +216,123 @@ async def test_loop_stops_immediately_if_seira_is_halted(monkeypatch):
 class _NullContext:
     def __enter__(self): return self
     def __exit__(self, *a): return False
+
+
+@pytest.mark.asyncio
+async def test_turn_timeout_stops_the_loop_cleanly(monkeypatch):
+    """The likely real cause of the live-reported symptom (2026-08-31):
+    'finishing her current turn, then stopping' stuck with no bound. A
+    hung or unusually slow turn must not block the loop forever."""
+    from seira_web import autonomy_loop
+    monkeypatch.setattr(autonomy_loop, "TURN_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
+    monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
+
+    fake_convs = _FakeConvs()
+    monkeypatch.setattr("seira_web.conversations.append", fake_convs.append)
+    monkeypatch.setattr("seira_web.conversations.model_history", fake_convs.model_history)
+    monkeypatch.setattr("seira_web.conversations.touch", fake_convs.touch)
+    monkeypatch.setattr("seira_core.tripwire.is_halted", lambda: False)
+    monkeypatch.setattr("seira_core.tenancy.tenant_scope",
+                        lambda *a, **kw: _NullContext())
+
+    def hanging_run_turn(conv_id, prompt, history, emit):
+        import time
+        time.sleep(2)  # far longer than the 0.05s timeout
+        return {"reply": "should never get here", "messages": []}
+
+    monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes", hanging_run_turn)
+
+    autonomy.start("tenant-a", "conv-1", "exploration")
+    await autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+
+    # The loop exited (didn't hang forever) and cleared state.
+    assert autonomy.status("tenant-a")["active"] is False
+
+
+@pytest.mark.asyncio
+async def test_live_events_are_published_during_a_turn(monkeypatch):
+    """The real fix for 'I wanted to see what she's doing live':
+    events must actually reach the broadcast registry, not be
+    discarded (the first version of this loop used emit=lambda e: None)."""
+    from seira_web import autonomy_loop, live_events
+    monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
+    monkeypatch.setattr(autonomy_loop, "MAX_TURNS", 1)
+    monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
+
+    fake_convs = _FakeConvs()
+    monkeypatch.setattr("seira_web.conversations.append", fake_convs.append)
+    monkeypatch.setattr("seira_web.conversations.model_history", fake_convs.model_history)
+    monkeypatch.setattr("seira_web.conversations.touch", fake_convs.touch)
+    monkeypatch.setattr("seira_core.tripwire.is_halted", lambda: False)
+    monkeypatch.setattr("seira_core.tenancy.tenant_scope",
+                        lambda *a, **kw: _NullContext())
+
+    def fake_run_turn(conv_id, prompt, history, emit):
+        emit({"event": "tool", "tool": "web_search"})
+        emit({"event": "reply", "text": "found something"})
+        return {"reply": "found something", "messages": []}
+
+    monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes", fake_run_turn)
+
+    subscriber = live_events.subscribe("conv-1")
+    autonomy.start("tenant-a", "conv-1", "exploration")
+    await autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+
+    received = []
+    while not subscriber.empty():
+        received.append(subscriber.get_nowait())
+    live_events.unsubscribe("conv-1", subscriber)
+
+    kinds = [e["event"] for e in received]
+    assert "autonomous_turn_started" in kinds  # the prompt bubble, from scratch
+    assert "tool" in kinds
+    assert "reply" in kinds
+    # run_turn_via_hermes emits its own reply — must not be duplicated
+    # by autonomy_loop emitting a second one.
+    assert kinds.count("reply") == 1
+
+
+# ---------------- live_events: the pub/sub registry itself ----------------
+
+def test_publish_reaches_a_subscriber():
+    from seira_web import live_events
+    q = live_events.subscribe("conv-x")
+    live_events.publish("conv-x", {"event": "tool", "tool": "web_search"})
+    assert q.get_nowait()["tool"] == "web_search"
+    live_events.unsubscribe("conv-x", q)
+
+
+def test_publish_to_a_conversation_with_no_subscribers_is_a_safe_noop():
+    from seira_web import live_events
+    live_events.publish("conv-nobody-is-watching", {"event": "tool"})  # must not raise
+
+
+def test_publish_does_not_cross_conversations():
+    from seira_web import live_events
+    q1 = live_events.subscribe("conv-a")
+    q2 = live_events.subscribe("conv-b")
+    live_events.publish("conv-a", {"event": "tool", "tool": "only-for-a"})
+    assert q1.get_nowait()["tool"] == "only-for-a"
+    assert q2.empty()
+    live_events.unsubscribe("conv-a", q1)
+    live_events.unsubscribe("conv-b", q2)
+
+
+def test_multiple_subscribers_to_the_same_conversation_both_receive():
+    from seira_web import live_events
+    q1 = live_events.subscribe("conv-shared")
+    q2 = live_events.subscribe("conv-shared")
+    live_events.publish("conv-shared", {"event": "reply", "text": "hi"})
+    assert q1.get_nowait()["text"] == "hi"
+    assert q2.get_nowait()["text"] == "hi"
+    live_events.unsubscribe("conv-shared", q1)
+    live_events.unsubscribe("conv-shared", q2)
+
+
+def test_unsubscribe_stops_further_delivery():
+    from seira_web import live_events
+    q = live_events.subscribe("conv-y")
+    live_events.unsubscribe("conv-y", q)
+    live_events.publish("conv-y", {"event": "tool"})
+    assert q.empty()
