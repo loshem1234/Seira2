@@ -468,3 +468,58 @@ create a bind mount by itself; an operator still has to attach one).
    list) — that's what points Hermes at the volume you just mounted.
 
 Redeploy after this.
+
+---
+
+## Part 10 — Images, and now documents, as one tagged, on-demand Corpus
+
+Two related fixes, both real architecture, not workarounds.
+
+**Image recall no longer depends on a sandbox environment existing.**
+`seira_image_recall` returns Hermes's own native multimodal envelope
+(`{"_multimodal": True, "content": [...], "text_summary": ...}`)
+instead of a JSON string with a custom `__image_block__` key buried
+inside it. This matters because Hermes has a real, built-in exemption:
+a result shaped this way is recognized as "genuinely needs its raw
+bytes" and skipped entirely by the size-truncation/sandbox-persistence
+path that caused the original live failure (a 2.28-million-character
+recall, truncated, because no sandbox environment happened to be
+active for that turn). Verified against the actual Hermes function,
+not assumed: `agent.tool_dispatch_helpers._is_multimodal_tool_result`
+returns `True` for this envelope — there's a test for exactly this.
+
+Both places that consume a tool result had to be updated to match, not
+just the new hermes-mode path: `hermes_session.py` for hermes mode, and
+`chat.py`'s still-used direct-mode loop (attachments and regeneration
+haven't moved to hermes mode yet — see Part 6's stated v1 scope limit).
+Recalling an old image now shows up in the chat the same way generating
+a new one does, in both modes — previously only generation surfaced to
+the UI at all.
+
+**Documents now work the same way images always have.** Per Loshem's
+direction: whatever the source — the Architect hands her something, she
+generates it, or she finds it on the web and chooses to keep it — it
+should join one tagged store, recallable by name, at any time.
+
+- `references.py` gained full tagging: `set_tag`, `find_by_tag`,
+  collision-disambiguation, and a migration backfill for records saved
+  before tagging existed — the exact same pattern `images.py` already
+  used, deliberately mirrored rather than redesigned.
+- `seira_reference_save` — a new tool letting her deliberately keep
+  something (most naturally, text she pulled via `web_extract`) in her
+  Corpus. Deliberate, not automatic — the same discipline her diary
+  already has. Not every page she glances at gets archived; only what
+  she chooses to keep.
+- `seira_reference_tag` — rename a saved document's tag.
+- `seira_create_file` now saves every generated document into this same
+  tagged store automatically, no extra step — the same "no ceremony
+  needed" treatment `seira_generate_image` already gave images. A
+  generated document is useful twice: once as a download, and later
+  when she wants to recall what she actually wrote. If the
+  reference-save step fails for any reason, the file download itself
+  still succeeds — verified by test, not just intended.
+
+What was NOT changed: uploaded documents already worked this way
+(`seira_web/app.py`'s upload endpoint already called `save_reference`)
+— they just gained tagging along with everything else, for free, since
+tagging lives in the shared store all three sources write to.

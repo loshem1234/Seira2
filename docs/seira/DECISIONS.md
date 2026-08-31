@@ -1332,3 +1332,50 @@ file_created, so a future multimodal-result tool doesn't reintroduce
 the same failure. Covered by a test using a 2.28M-character payload at
 the reported scale, asserting the raw data never reaches the emitted
 event at all.
+
+**D148. The "correct fix" for image recall — real, not a workaround —
+verified against Hermes's actual exemption function, not just shaped
+to look right.** `seira_image_recall` now returns Hermes's native
+`{"_multimodal": True, "content": [...]}` envelope directly (a real
+Python dict) rather than a JSON string carrying a custom
+`__image_block__` key. Checked before implementing: both real call
+sites that consume a memory-provider tool result
+(`agent/agent_runtime_helpers.py`, `agent/tool_executor.py`) already
+type their handling as `Any`, not `str`, despite the documented
+interface (`MemoryProvider.handle_tool_call -> str`) suggesting
+otherwise — Python doesn't enforce return annotations, and the actual
+runtime code already passes results through generically. This meant
+the correct fix didn't require touching Hermes's own core
+`agent/memory_manager.py` / `MemoryProvider` interface at all — a real,
+substantive constraint-check before implementing, not an assumption.
+Confirmed with a test that calls the real
+`agent.tool_dispatch_helpers._is_multimodal_tool_result` function
+against the new envelope and asserts `True`.
+
+**D149. Direct mode (`chat.py`) had to be updated too, deliberately —
+not left on the old convention.** `seira_image_recall`'s old
+`__image_block__`-in-a-JSON-string shape was chat.py's own working
+convention; changing the return shape without updating chat.py's
+consumption of it would have silently broken direct mode (still used
+for attachments and regeneration — see D129's stated v1 scope limit).
+Rewired to build proper Anthropic-native content blocks from the new
+envelope's data URI, and to fire the same `image_created` UI event for
+recall that generation already had — a gap that existed even before
+tonight's changes, closed as part of this work rather than left
+inconsistent between the two paths.
+
+**D150. Documents now share the same tagged-Corpus architecture as
+images, across all three real sources — a deliberate widening, not
+narrowly scoped to fix only the reported bug.** `references.py` gained
+full tagging (`set_tag`, `find_by_tag`, collision handling, migration
+backfill) mirroring `images.py`'s exact, already-proven pattern rather
+than a new design. Three sources now write to the one store:
+`seira_web/app.py`'s existing upload endpoint (unchanged, gains
+tagging for free), the new `seira_reference_save` tool (deliberate,
+for web-found content — same discipline as the diary, not an
+auto-archive of everything she reads), and `seira_create_file`
+(automatic, no extra step — matching how image generation already
+worked). A reference-save failure inside `seira_create_file` is
+caught and logged, never allowed to fail the file download that
+already succeeded — verified by a test that forces the failure and
+confirms the download path still returns correctly.
