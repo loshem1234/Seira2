@@ -353,6 +353,36 @@ function setActivity(label) {
 }
 function clearActivity() { activityEl?.remove(); activityEl = null; }
 
+function renderStreamEvent(ev) {
+  if (ev.event === 'user_recorded') {
+    if (lastUserEl) { lastUserEl.dataset.id = ev.id; lastUserEl = null; }
+  } else if (ev.event === 'autonomous_turn_started') {
+    // Nothing pre-rendered here — nobody typed anything — so unlike a
+    // normal turn's optimistic bubble, this creates it from scratch.
+    msgs.appendChild(el(`<div class="msg user autonomous" data-id="${ev.id}">
+      <div class="who">Her own initiative</div>
+      <span class="body">${esc(ev.text || '')}</span></div>`));
+    scrollEnd();
+  }
+  else if (ev.event === 'phase') setActivity(ev.label);
+  else if (ev.event === 'tool') { clearActivity(); addToolCard(ev);
+    setActivity('Thinking'); }
+  else if (ev.event === 'tool_result') { attachToolResult(ev); }
+  else if (ev.event === 'reasoning') { clearActivity(); appendReasoning(ev.text || ''); }
+  else if (ev.event === 'delta') { clearActivity(); appendDelta(ev.text || ''); }
+  else if (ev.event === 'delta_end') { /* reply event finalizes */ }
+  else if (ev.event === 'file_created') {
+    addDownloadCard(ev.filename || 'file', ev.download_path);
+  }
+  else if (ev.event === 'image_created') {
+    addGeneratedImage(ev.img_id, ev.tag, ev.used_references);
+  }
+  else if (ev.event === 'reply') { clearActivity();
+    finalizeReply(ev.text, ev.assistant_id); }
+  else if (ev.event === 'error') { clearActivity(); settleReasoning();
+    addChip(ev.halted ? 'Seira is halted (Art. 32.3)' : ('Failed: ' + ev.error)); }
+}
+
 async function stream(body) {
   if (busy) return; busy = true;
   body.conv_id = CONV;
@@ -372,26 +402,7 @@ async function stream(body) {
       while ((i = buf.indexOf('\n\n')) >= 0) {
         const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
         if (!chunk.startsWith('data: ')) continue;
-        const ev = JSON.parse(chunk.slice(6));
-        if (ev.event === 'user_recorded') {
-          if (lastUserEl) { lastUserEl.dataset.id = ev.id; lastUserEl = null; }
-        } else if (ev.event === 'phase') setActivity(ev.label);
-        else if (ev.event === 'tool') { clearActivity(); addToolCard(ev);
-          setActivity('Thinking'); }
-        else if (ev.event === 'tool_result') { attachToolResult(ev); }
-        else if (ev.event === 'reasoning') { clearActivity(); appendReasoning(ev.text || ''); }
-        else if (ev.event === 'delta') { clearActivity(); appendDelta(ev.text || ''); }
-        else if (ev.event === 'delta_end') { /* reply event finalizes */ }
-        else if (ev.event === 'file_created') {
-          addDownloadCard(ev.filename || 'file', ev.download_path);
-        }
-        else if (ev.event === 'image_created') {
-          addGeneratedImage(ev.img_id, ev.tag, ev.used_references);
-        }
-        else if (ev.event === 'reply') { clearActivity();
-          finalizeReply(ev.text, ev.assistant_id); }
-        else if (ev.event === 'error') { clearActivity(); settleReasoning();
-          addChip(ev.halted ? 'Seira is halted (Art. 32.3)' : ('Failed: ' + ev.error)); }
+        renderStreamEvent(JSON.parse(chunk.slice(6)));
       }
     }
   } finally { clearActivity(); busy = false; }
@@ -658,24 +669,43 @@ const autonomybar = document.getElementById('autonomybar');
 const autonomylabel = document.getElementById('autonomylabel');
 const autonomystop = document.getElementById('autonomystop');
 const AUTONOMY_PACING_SECONDS = {{ autonomy_pacing_seconds | tojson }};
-let lastSeenTurnCount = null;
+let autonomyLiveSource = null;
+
+function connectAutonomyLiveFeed() {
+  if (autonomyLiveSource) return;  // already connected
+  autonomyLiveSource = new EventSource(`/api/conversations/${CONV}/live`);
+  autonomyLiveSource.onmessage = (e) => {
+    if (!e.data) return;  // keepalive comments don't reach onmessage
+    try { renderStreamEvent(JSON.parse(e.data)); } catch (err) { /* ignore malformed */ }
+  };
+  autonomyLiveSource.onerror = () => {
+    // The browser's EventSource retries connections on its own; no
+    // manual reconnect logic needed here.
+  };
+}
+
+function disconnectAutonomyLiveFeed() {
+  if (autonomyLiveSource) { autonomyLiveSource.close(); autonomyLiveSource = null; }
+}
 
 function renderAutonomyStatus(s) {
   if (!s.active) {
     autonomybar.hidden = true;
-    lastSeenTurnCount = null;
+    disconnectAutonomyLiveFeed();
     return;
   }
   autonomybar.hidden = false;
+  connectAutonomyLiveFeed();  // her activity now renders live in the
+                              // message area itself, the same as a
+                              // normal turn — this bar is the status
+                              // and the kill switch, not the only
+                              // place you can see what she's doing.
   const modeName = s.mode === 'exploration' ? 'Exploration' : 'Contemplation';
-  const pacingMin = Math.max(1, Math.round(AUTONOMY_PACING_SECONDS / 60));
+  const mins = Math.floor((s.elapsed_seconds || 0) / 60);
+  const elapsed = mins < 1 ? 'just started' : `running ${mins}m`;
   autonomylabel.textContent = s.stopping
-    ? `${modeName} — finishing her current turn, then stopping…`
-    : `${modeName} — acting on her own (turn ${s.turn_count}) — next action in up to ~${pacingMin}m`;
-  if (lastSeenTurnCount !== null && s.turn_count > lastSeenTurnCount) {
-    location.reload();  // a new autonomous turn landed — show it
-  }
-  lastSeenTurnCount = s.turn_count;
+    ? `${modeName} — finishing her current turn, then stopping… (${elapsed})`
+    : `${modeName} — acting on her own, turn ${s.turn_count} (${elapsed})`;
 }
 
 async function pollAutonomyStatus() {
