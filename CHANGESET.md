@@ -1,55 +1,48 @@
-# CHANGESET — The Archive page
+# CHANGESET — Session checkpoints: pick up a project as if no time passed
 
-Seven files. This is a straightforward addition on top of everything
-already applied — nothing here touches the projects/references/images
-storage itself, only reads it.
+Nine files. Builds on the living-projects work — no new storage, one
+new field and one new tool.
 
-## Replaces an existing file (5)
+## Replaces an existing file (7)
 
-    seira_web/app.py               — two new routes: /archive and
-                                     /archive/reference/{ref_id}
-    seira_web/templates/base.html  — "Archive" added to the hamburger
-                                     menu
-    tests/seira_core/test_ui_update_app.py — 7 new tests
-    docs/seira/WIRING.md           — Part 13 appended
-    docs/seira/DECISIONS.md        — D159–D161 appended
+    seira_bridge/__init__.py       — is_summary param on both save
+                                     tools, new seira_project_resume
+                                     tool
+    seira_web/references.py        — reference records carry an
+                                     is_summary flag
+    seira_web/projects.py          — session_summaries() and resume()
+    seira_web/templates/archive.html — checkpoint documents marked
+                                       visibly
+    tests/seira_core/test_bridge.py     — governance test updated
+    tests/seira_core/test_ui_update_app.py — 1 new test
+    docs/seira/WIRING.md           — Part 14 appended
+    docs/seira/DECISIONS.md        — D162–D164 appended
 
-## New file (2)
+## What's actually new
 
-    seira_web/templates/archive.html            — the main page
-    seira_web/templates/archive_reference.html  — the read-only
-                                                  document viewer
+Two things she can do now that she couldn't before:
 
-## What you'll see
+1. Mark any document a session checkpoint —
+   `seira_create_file(..., is_summary=True)` or
+   `seira_reference_save(..., is_summary=True)`. Same discretion as
+   everything else built tonight — the tool description invites this
+   at "a natural stopping point," it isn't mechanically required.
+2. `seira_project_resume(project)` — pulls the most recent checkpoint
+   back in full, plus a short list of any earlier ones. This is a
+   real, separate tool from seira_project_recall (which still shows
+   everything) — resume specifically answers "where did I leave off,"
+   cheaply, using whatever she wrote last rather than reloading the
+   whole project.
 
-Open the hamburger menu → Archive. Three tabs:
+If she's never written a checkpoint for a project, resume says so
+honestly and shows the ordinary manifest instead — it never fabricates
+a sense of continuity that isn't actually there. Verified by test.
 
-- **Projects** — every living project, marked when it was her own
-  initiative, with every document filed under it.
-- **Documents** — anything not currently grouped into a project.
-- **Images** — a thumbnail gallery.
-
-Click any document to read it in full, read-only.
-
-## Read-only, actually — not just by convention
-
-No route this adds accepts anything but GET. Nothing here can modify
-her Corpus — it's the same data her own tools already write to, just
-made visible to you. Verified by test, not just intended: the document
-viewer's content area is checked for the literal absence of a `<form>`
-element.
-
-## One technical detail worth knowing
-
-Documents can be long, and the underlying read function caps each
-internal call at 40,000 characters — a limit that exists to keep HER
-reads bounded, not yours. The viewer loops that call server-side to
-assemble a full page (up to 300,000 characters) rather than paginating
-in the browser. There's a test specifically checking that the END of a
-long document actually appears on the page, not just its first chunk.
+You'll also see a "session checkpoint" marker next to any flagged
+document in the Archive page's project view.
 
 ## Testing
 
-332 passed (325 before this round + 7 new). Run:
+342 passed (332 before this round + 10 new). Run:
 
     python -m pytest tests/seira_core/ -q
