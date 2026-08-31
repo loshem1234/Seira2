@@ -1477,3 +1477,22 @@ other page already uses — no new access path.** `projects.list_projects()`,
 inside the same `tenant_scope(account["tenant_id"])` pattern `console`
 and `diary` already established. Nothing new to keep consistent; one
 more reader of data that already exists.
+
+**D162. Resume is a distinct operation from recall, not a mode flag —
+because the two answer different questions.** `seira_project_recall`
+answers "what's in this project"; `seira_project_resume` answers
+"where did I leave off." Modeling them as separate tools rather than
+`recall(mode="resume")` keeps each tool's contract simple and its name
+honest about what it actually does.
+
+**D163. Resume never fabricates a checkpoint that doesn't exist.**
+With no `is_summary`-flagged document in a project, `resume()` returns
+`has_session_summary: False` and falls back to the ordinary manifest,
+with a plain note suggesting one be written — never silently
+synthesizes a false sense of continuity from whatever documents happen
+to exist. Verified by test.
+
+**D164. `is_summary` is a stored, queryable field — not inferred from
+a filename or tag convention.** Deliberate: a naming convention is
+fragile (what counts as "looks like a summary"?) and invisible to
+tooling; a real boolean field on the reference record is neither.

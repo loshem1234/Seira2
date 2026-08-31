@@ -663,3 +663,40 @@ tools already write to (`projects.py`, `references.py`, `images.py`),
 through the same `tenant_scope()` every other page already uses — no
 new storage, no new access path, just visibility into what already
 exists.
+
+---
+
+## Part 14 — Session checkpoints: resuming a project as if no time passed
+
+Per Loshem's direction (2026-08-31): she should be able to write a
+summarizing document at the end of a working session — or several,
+across many sessions — and use the most recent one to pick a project
+back up seamlessly after a break or after working on something else.
+
+**`is_summary`, a real flag, not a naming convention.** Both
+`seira_reference_save` and `seira_create_file` gained an `is_summary`
+parameter. A document flagged this way is a session checkpoint —
+"where things stand" — distinct from an ordinary saved document in the
+same project.
+
+**`seira_project_resume` — a genuinely different operation from
+`seira_project_recall`, not a mode flag on it.** Recall shows what's IN
+a project. Resume gets her back to where she left off: the most recent
+checkpoint's full text, plus a short list of any earlier checkpoints
+for deeper history if she wants it. Cheaper and more direct than
+recall's manifest, because it goes straight to the one document that
+actually matters for "picking up," rather than surveying everything.
+If no checkpoint has ever been written, it says so plainly and falls
+back to the ordinary manifest — never a fabricated resume.
+
+**Discretion, not obligation — same pattern as everything else built
+tonight.** `seira_create_file`'s schema explicitly invites writing a
+checkpoint "on your own initiative when concluding meaningful work,"
+mirroring the same stated discretion as project creation itself
+(Part 12). No mechanical requirement to write one; the tool exists,
+and using it is hers to decide.
+
+**Visible in the Archive page too.** A document flagged `is_summary`
+is marked "session checkpoint" in the project's file listing — so
+Loshem can see, at a glance, which documents in a project are
+checkpoints versus ordinary working files.
