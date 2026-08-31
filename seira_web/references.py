@@ -93,7 +93,8 @@ def _save_index(index: Dict[str, Dict[str, Any]]) -> None:
 
 
 def save_reference(filename: str, text: str, source: str = "upload",
-                   tag: str = "", project: str = "") -> Dict[str, Any]:
+                   tag: str = "", project: str = "",
+                   is_summary: bool = False) -> Dict[str, Any]:
     if not text.strip():
         raise ValueError("Cannot save an empty reference.")
     index = _load_index()
@@ -106,6 +107,10 @@ def save_reference(filename: str, text: str, source: str = "upload",
         "length": len(text), "created": _now(),
         "tag": _slugify(tag) if tag.strip() else default_tag,
         "project": project or None,
+        # A session checkpoint, not an ordinary document — "where we
+        # left off," meant to be the fast path back into a project
+        # after time away. See projects.resume().
+        "is_summary": is_summary,
     }
     # Same disambiguation discipline as images.py: a colliding tag gets
     # a short suffix rather than silently shadowing an older document

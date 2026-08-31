@@ -205,6 +205,57 @@ def project_files(proj_id_or_tag: str) -> List[Dict[str, Any]]:
     return [r for r in refs.list_references() if r.get("project") == proj["proj_id"]]
 
 
+def session_summaries(proj_id_or_tag: str) -> List[Dict[str, Any]]:
+    """Every checkpoint document filed under this project, most recent
+    first — the trail of 'where we left off' across however many
+    sessions there have been."""
+    return [f for f in project_files(proj_id_or_tag) if f.get("is_summary")]
+
+
+def resume(proj_id_or_tag: str) -> Dict[str, Any]:
+    """The 'as if we never took a break' operation. Not the same as
+    recall(): recall shows what's IN a project; resume gets you back
+    to where you left off, cheaply, using whatever checkpoint she
+    wrote at the end of the last session — not by reloading every
+    document from scratch.
+
+    Returns the most recent session summary's FULL text (this is the
+    whole point — one targeted document, not a shotgun scan), plus a
+    short list of any earlier summaries (so a project's session
+    history stays discoverable, not just its latest state) and the
+    project's own blurb for orientation. If no summary has ever been
+    written yet, says so plainly and falls back to the ordinary
+    manifest rather than pretending a checkpoint exists.
+    """
+    from seira_web import references as refs
+    proj = resolve_project(proj_id_or_tag)
+    if proj is None:
+        return {"found": False, "error": f"No project matching {proj_id_or_tag!r}."}
+    summaries = session_summaries(proj_id_or_tag)
+    if not summaries:
+        fallback = recall(proj_id_or_tag, mode="manifest")
+        fallback["has_session_summary"] = False
+        fallback["note"] = ("No session summary written yet for this project — "
+                            "showing the ordinary manifest instead. Consider "
+                            "writing one (seira_create_file with "
+                            "is_summary=True) at the end of a working session "
+                            "so the next visit can resume instantly.")
+        return fallback
+    latest = summaries[0]
+    page = refs.read_slice(latest["ref_id"], 0, 40_000)
+    earlier = [{"ref_id": s["ref_id"], "tag": s["tag"], "created": s["created"]}
+              for s in summaries[1:]]
+    return {
+        "found": True, "has_session_summary": True, "project": proj["name"],
+        "tag": proj["tag"], "blurb": proj.get("blurb", ""),
+        "latest_summary": {"ref_id": latest["ref_id"], "tag": latest["tag"],
+                           "created": latest["created"], "text": page["text"],
+                           "truncated": page["has_more"]},
+        "earlier_summaries": earlier,
+        "total_file_count": len(project_files(proj_id_or_tag)),
+    }
+
+
 def recall(proj_id_or_tag: str, mode: str = "manifest",
           full_budget_chars: int = 40_000) -> Dict[str, Any]:
     """The 'refresh into a temporary context' operation.
