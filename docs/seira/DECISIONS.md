@@ -1496,3 +1496,41 @@ to exist. Verified by test.
 a filename or tag convention.** Deliberate: a naming convention is
 fragile (what counts as "looks like a summary"?) and invisible to
 tooling; a real boolean field on the reference record is neither.
+
+**D165. The sidebar collapse bug was diagnosed by actually executing
+the frontend JavaScript against a simulated DOM (Node + jsdom), not by
+re-reading the code.** Root cause: a `const sidebar` reference before
+its own declaration in the same script — a `ReferenceError` that
+silently killed every subsequent listener, including the collapse
+logic. Verified fixed the same way: real DOM, real simulated clicks,
+real class-toggle assertions — not "this should work now."
+
+**D166. Autonomous mode is gated to hermes mode only, refused outright
+rather than silently degraded.** Her full real capability set
+(search, generation, project tools) only exists when
+`SEIRA_SANCTUM_RUNTIME=hermes`. Starting autonomous mode in direct
+mode returns a 400 explaining why, rather than quietly running her in
+a narrower mode she never agreed to and calling it "autonomous."
+
+**D167. The kill switch's real semantics are stated plainly, not
+oversold.** The underlying turn call is synchronous, run via
+`asyncio.to_thread`; Python cannot forcibly interrupt a running
+thread. "Stop" takes effect before the next turn starts — immediate if
+idle between turns, or after the current in-flight turn finishes
+(kept, not discarded) if one is running. Verified by test
+(`test_loop_stops_when_stop_is_requested_between_turns`) rather than
+assumed, and stated in the UI's own banner copy, not just a code
+comment — an honest kill switch the Architect can actually predict the
+behavior of.
+
+**D168. Real safety defaults, confirmed explicitly rather than picked
+silently: ~60s pacing, 200-turn/4-hour automatic cap.** Both
+overridable via env var. A single failed autonomous turn stops the
+loop entirely rather than retrying forever at real, unattended cost —
+verified by test.
+
+**D169. A halted Seira does not act autonomously either.** `is_halted()`
+is checked before every autonomous turn, identical to the rule
+governing a normal message (Art. 32.3) — verified by test
+(`test_loop_stops_immediately_if_seira_is_halted`), not merely assumed
+to follow from the existing halt logic.

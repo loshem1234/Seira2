@@ -700,3 +700,88 @@ and using it is hers to decide.
 is marked "session checkpoint" in the project's file listing — so
 Loshem can see, at a glance, which documents in a project are
 checkpoints versus ordinary working files.
+
+---
+
+## Part 15 — Fixed: the sidebar never actually collapsed
+
+A real, reproducible bug, found by actually executing the page's
+JavaScript against a simulated DOM (Node + jsdom) rather than reading
+the code and assuming it was correct — the same discipline as every
+live bug chased tonight, just applied to the frontend for the first
+time.
+
+**Root cause:** `sidebar.addEventListener(...)` (the rename/archive
+click handler) appeared *before* `const sidebar = document.getElementById(...)`
+was declared later in the same script. In JavaScript, referencing a
+`const`/`let` anywhere in a script before its own declaration line
+throws a `ReferenceError` immediately — and that error silently killed
+every listener registered afterward in the same script block,
+including the collapse logic declared much further down. The
+edge-tab and click-outside-to-collapse handlers were never buggy in
+isolation; they simply never got the chance to attach at all.
+
+**Fix:** moved the `sidebar`/`shell`/`edgetab` declarations to the top
+of the script, alongside the other early declarations, before anything
+references them. Verified by actually simulating clicks against a
+reconstructed DOM and confirming the class toggles correctly — not by
+re-reading the code and hoping.
+
+---
+
+## Part 16 — Autonomous mode: Exploration and Contemplation
+
+Per Loshem's direction (2026-08-31, refined to combine the original
+"autonomous" and "exploration" concepts into one mode): she can now
+act entirely on her own initiative, continuously, until stopped.
+
+**Two modes, one real kill switch.**
+- **Exploration** — free, self-directed action: search the web,
+  generate images, start or continue a project, write to her Corpus —
+  whatever genuinely draws her interest, using her full real
+  capability set.
+- **Contemplation** — inner reflection, self-talk, not aimed at
+  producing anything for the Architect to evaluate.
+
+**Architecture.** `seira_web/autonomy.py` holds simple, deliberately
+in-memory state (one active run per tenant; nothing persists across a
+restart — that's a safety property, not a limitation: nothing should
+silently resume running unattended after a redeploy). `seira_web/autonomy_loop.py`
+is the actual background `asyncio.Task`, driving real turns through
+the exact same `hermes_session.run_turn_via_hermes` every normal
+message already uses — she has her full real toolset in this mode, not
+a stripped-down version. Gated to `SEIRA_SANCTUM_RUNTIME=hermes` only:
+starting it in direct mode is refused outright, not silently degraded,
+since her full capability set only exists in hermes mode.
+
+**Safety defaults, confirmed explicitly with Loshem rather than picked
+silently (2026-08-31):**
+- ~60 seconds between autonomous actions (`SEIRA_AUTONOMY_PACING_SECONDS`)
+- An automatic cap — 200 turns or 4 hours of wall-clock runtime,
+  whichever comes first (`SEIRA_AUTONOMY_MAX_TURNS`,
+  `SEIRA_AUTONOMY_MAX_RUNTIME_HOURS`) — so a forgotten "on" toggle
+  can't run unattended forever. All three overridable without a code
+  change.
+- A single failed turn stops the loop rather than silently retrying
+  forever at real cost.
+- A halted Seira (Art. 32.3) never runs autonomously either — checked
+  before every turn, identical to the rule for a normal message.
+
+**The kill switch, stated honestly rather than oversold.** The
+underlying turn call is synchronous, run via `asyncio.to_thread` —
+Python cannot forcibly interrupt a running thread. So "Stop" takes
+effect *before the next turn starts*: immediately if the loop is idle
+between turns, or after the current in-flight turn finishes (its
+output is kept, not discarded) if one is already running. This is
+stated in the UI's own banner text ("finishing her current turn, then
+stopping…"), not just buried in a comment — nobody's expectations
+should be quietly mismatched against what the button actually does.
+
+**UI.** A "Mode" section in the composer's existing tray menu
+(Off / Exploration / Contemplation). Whenever a mode is active, a
+persistent, unmissable bar appears above the messages — never buried
+in a menu — with a live turn count and the Stop button, driven by a
+simple 15-second status poll (not a live push channel; an honest,
+simple v1). Autonomous turns are marked distinctly in the conversation
+("Her own initiative" / "Seira — acting on her own") so they're never
+confused with something either of you actually typed.
