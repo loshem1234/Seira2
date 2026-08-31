@@ -163,6 +163,34 @@ def test_archive_page_marks_session_checkpoints(client):
     assert page.count("session checkpoint") == 1
 
 
+# ---------------- autonomous mode: the API layer ----------------
+
+def test_autonomy_status_when_nothing_running(client):
+    r = client.get("/api/autonomy/status")
+    assert r.status_code == 200 and r.json()["active"] is False
+
+
+def test_autonomy_start_refused_outside_hermes_mode(client, monkeypatch):
+    """Real safety property: her full capability set (search,
+    generation, project tools) only exists in hermes mode — starting
+    autonomous mode without it must be refused, not silently degraded
+    to a narrower experience she never agreed to."""
+    monkeypatch.delenv("SEIRA_SANCTUM_RUNTIME", raising=False)
+    r = client.post("/api/autonomy/start", json={"mode": "exploration", "conv_id": "c-1"})
+    assert r.status_code == 400
+
+
+def test_autonomy_start_requires_a_valid_mode(client, monkeypatch):
+    monkeypatch.setenv("SEIRA_SANCTUM_RUNTIME", "hermes")
+    r = client.post("/api/autonomy/start", json={"mode": "not-real", "conv_id": "c-1"})
+    assert r.status_code == 400
+
+
+def test_autonomy_stop_of_nothing_running_is_a_safe_noop(client):
+    r = client.post("/api/autonomy/stop")
+    assert r.status_code == 200 and r.json()["active"] is False
+
+
 def _make_text_pdf_bytes() -> bytes:
     import io
     from pypdf import PdfWriter
