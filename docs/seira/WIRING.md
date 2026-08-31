@@ -785,3 +785,57 @@ simple 15-second status poll (not a live push channel; an honest,
 simple v1). Autonomous turns are marked distinctly in the conversation
 ("Her own initiative" / "Seira — acting on her own") so they're never
 confused with something either of you actually typed.
+
+---
+
+## Part 17 — Two real fixes to autonomous mode, from live feedback
+
+Both issues reported (2026-08-31) were genuine, and one of them was a
+real gap the first version simply didn't have — not a misunderstanding.
+
+**1. "I wanted to see what she is doing live, not behind the
+scenes."** Real gap, not a misunderstanding: the first version's
+autonomous loop called `run_turn_via_hermes(..., emit=lambda e: None)`
+— every live event (tool calls, reasoning, streamed text) was
+generated and immediately discarded. The only visibility was a status
+poll that reloaded the whole page once a turn finished.
+
+Fixed properly, not patched around: `seira_web/live_events.py` is a
+small in-memory pub/sub registry — `publish(conv_id, event)` fans an
+event out to every browser currently watching that conversation. A new
+endpoint, `/api/conversations/{conv_id}/live`, is the same
+`text/event-stream` shape `/api/chat/stream` already uses, so the
+frontend renders both through one shared function
+(`renderStreamEvent`, extracted from the normal chat stream handler
+rather than duplicated). The autonomous loop's `emit` now actually
+publishes to this registry instead of discarding events. A new event,
+`autonomous_turn_started`, exists because normal turns have an
+optimistically-rendered bubble already on screen before the server
+responds (something the Architect just typed) — an autonomous turn has
+nothing pre-rendered, since nobody typed anything, so this event
+carries the actual prompt text to build that bubble from scratch.
+
+With this in place, her tool cards, reasoning, and streamed reply now
+appear in the message area live, during an autonomous turn, exactly
+the way a normal turn already shows them — the status bar at the top
+is now purely the kill switch and a status summary, not the only place
+anything is visible.
+
+**2. "the killswitch... says 'finishing her current turn, then
+stopping' for 15 minutes."** The most likely real cause: nothing
+bounded how long a single turn could run. A turn with real,
+substantial tool use (or delegation to a subagent) can legitimately
+take a while — but "a while" needs a limit. Added
+`SEIRA_AUTONOMY_TURN_TIMEOUT_SECONDS` (default 600s/10 minutes,
+overridable): if a turn exceeds it, the loop treats it as a failed
+turn and stops cleanly rather than waiting indefinitely. Stated
+honestly, matching the same discipline as the kill switch itself:
+`asyncio.wait_for` makes the *loop* give up waiting, but Python still
+cannot kill the underlying thread — if the call was genuinely still
+running, it keeps running harmlessly in the background and writes its
+result whenever it eventually finishes, orphaned but harmless.
+
+The status bar also now shows real elapsed time
+("running 2m") rather than a static, unchanging label, so a
+legitimately-long-but-working turn and an actually-stuck one are at
+least distinguishable by whether the clock is moving.

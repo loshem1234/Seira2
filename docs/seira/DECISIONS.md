@@ -1534,3 +1534,33 @@ is checked before every autonomous turn, identical to the rule
 governing a normal message (Art. 32.3) — verified by test
 (`test_loop_stops_immediately_if_seira_is_halted`), not merely assumed
 to follow from the existing halt logic.
+
+**D170. The first version of autonomous mode discarded every live
+event on purpose-shaped placeholder code (`emit=lambda e: None`) —
+found from direct, live feedback rather than a code review catching
+it.** Fixed with a real pub/sub broadcast (`seira_web/live_events.py`)
+and a new SSE endpoint, reusing the exact event shape and rendering
+functions the normal chat stream already has — extracted into
+`renderStreamEvent` rather than duplicated, so both paths render
+identically and can't drift apart. Verified by test that tool/reply
+events genuinely reach a subscriber, not just that the code compiles.
+
+**D171. A per-turn timeout was added as the most likely real fix for a
+live-reported "stuck for 15 minutes" symptom — `SEIRA_AUTONOMY_TURN_TIMEOUT_SECONDS`,
+default 600s.** Honest about its actual mechanics, stated in code
+comments and in WIRING.md, not just implied: `asyncio.wait_for` makes
+the loop stop *waiting*, but cannot kill the underlying thread — a
+genuinely-still-running call keeps running orphaned in the background
+until it finishes on its own. This is the same category of honesty as
+D167's kill-switch semantics: state what's actually guaranteed, not
+what would be convenient to imply.
+
+**D172. `autonomous_turn_started` is a distinct event from the
+existing `user_recorded`, not a reuse of it — because the two solve
+different problems.** `user_recorded` exists to attach a server-issued
+ID to a bubble the browser already rendered optimistically, before the
+server responded, for something the Architect typed. Nothing is
+pre-rendered for an autonomous turn — nobody typed anything — so the
+live feed needs the prompt's actual text to build that bubble from
+scratch, not just an ID to attach to something that doesn't exist
+client-side.
