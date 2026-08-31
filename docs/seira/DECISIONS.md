@@ -1564,3 +1564,33 @@ pre-rendered for an autonomous turn — nobody typed anything — so the
 live feed needs the prompt's actual text to build that bubble from
 scratch, not just an ID to attach to something that doesn't exist
 client-side.
+
+**D173. The "stuck at turn 0" bug was a real, structural
+execution-model mismatch, reproduced directly before being fixed —
+not guessed at from reading the code.** `asyncio.create_task()`,
+called from a synchronous FastAPI route handler (which runs in a
+thread-pool worker thread), requires a running event loop in the
+calling thread and always raised `RuntimeError: no running event
+loop` — after `autonomy.start()` had already marked the run active,
+leaving every run permanently stuck with no loop ever executing.
+Confirmed with a standalone reproduction script before writing the
+fix, and confirmed fixed with a test that calls `autonomy_loop.start()`
+from an actual separate thread and asserts a real turn executes.
+
+**D174. The fix adopted this codebase's own existing, proven pattern
+(`tripwire_loop.py`'s plain `threading.Thread`) rather than debugging
+the asyncio approach further.** Everything the autonomy loop calls was
+already fully synchronous — asyncio was never structurally necessary
+here, only reached for by habit. `concurrent.futures.ThreadPoolExecutor`
++ `future.result(timeout=...)` replaces `asyncio.wait_for` for the
+per-turn timeout, with the identical honest limitation restated: this
+makes the loop stop waiting, not something that can forcibly kill the
+underlying thread.
+
+**D175. A currently-stuck run is not fixed by this code change alone
+— explicitly stated, not left implicit.** Autonomy's state is
+deliberately in-memory only (no run should silently resume after a
+restart without an explicit new start); a stuck entry from the old,
+buggy code lives in the current process's memory and clears on a
+normal redeploy, the same property that makes this bug recoverable
+without a manual data fix.

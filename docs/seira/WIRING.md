@@ -839,3 +839,58 @@ The status bar also now shows real elapsed time
 ("running 2m") rather than a static, unchanging label, so a
 legitimately-long-but-working turn and an actually-stuck one are at
 least distinguishable by whether the clock is moving.
+
+---
+
+## Part 18 — The real cause of "stuck at turn 0": a structural bug, found and fixed
+
+Reproduced directly before writing anything, not guessed at: the first
+version of autonomous mode scheduled its background loop with
+`asyncio.create_task()`, called from inside a synchronous FastAPI
+route handler (`/api/autonomy/start`). Synchronous route handlers run
+in a thread-pool worker thread — `asyncio.create_task()` requires an
+actually-running event loop *in the calling thread*, which a worker
+thread doesn't have. It raised `RuntimeError: no running event loop`
+every single time, silently, immediately after `autonomy.start()` had
+already marked the run "active" in the one line before it. The result:
+every autonomous run was permanently stuck at turn 0, elapsed time
+climbing forever, nothing ever entering the chat — exactly the
+live-reported symptom (2026-08-31) — because no loop was ever actually
+running to do anything, or to notice a stop request.
+
+**The fix uses a pattern this codebase already had, proven, sitting
+right there.** `seira_web/tripwire_loop.py` solves the identical
+problem — background work independent of any one HTTP request — with
+a plain `threading.Thread` and `time.sleep()`, no asyncio anywhere.
+Everything the autonomy loop calls
+(`hermes_session.run_turn_via_hermes`, `conversations.append`, the
+tripwire check) was already fully synchronous; asyncio was never
+actually needed here, just reached for out of habit rather than
+checked against how the rest of the app already handles this exact
+class of problem. `seira_web/autonomy_loop.py` now mirrors
+`tripwire_loop.py`'s shape: a plain background thread, `time.sleep()`
+for pacing, and a `concurrent.futures.ThreadPoolExecutor` +
+`future.result(timeout=...)` for the per-turn timeout (replacing
+`asyncio.wait_for`) — same honest limitation as before, stated the
+same way: this makes the *loop* stop waiting, not something that can
+forcibly kill the underlying thread.
+
+**Verified two ways, not just re-read.** First, the exact failure was
+reproduced directly — a bare Python script confirming
+`asyncio.create_task()` really does raise `RuntimeError` when called
+from a worker thread while a real event loop runs elsewhere. Then the
+fix was verified against that same reproduction: a test
+(`test_start_works_when_called_from_a_worker_thread`) that calls
+`autonomy_loop.start()` from an actual separate thread — exactly what
+a synchronous FastAPI route handler does — and confirms the loop
+genuinely executes a real turn, not just that `start()` returns
+without raising.
+
+**If you already have a run stuck in this state:** applying this fix
+alone will not clear it. The stuck state lives in the *current
+process's* memory; a code deploy doesn't reset that on its own. A
+normal redeploy/restart of the Sanctum service clears it naturally,
+since autonomy's state was deliberately designed to be in-memory only
+(D-166-adjacent: nothing should silently resume after a restart
+without a fresh, explicit start) — the same property that made this
+bug recoverable at all rather than needing a manual database fix.
