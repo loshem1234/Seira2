@@ -40,10 +40,16 @@
       <span class="ember" style="--x:38%; --dur:10.8s; --delay:9.4s; --size:.19rem;"></span>
       <span class="ember" style="--x:60%; --dur:13s;  --delay:.2s;  --size:.16rem;"></span>
     </div>
+    <div class="autonomybar" id="autonomybar" hidden>
+      <span class="orb"></span>
+      <span id="autonomylabel">Running on her own</span>
+      <button class="gold" id="autonomystop" type="button">Stop</button>
+    </div>
     <div class="msgs" id="msgs">
       {% for r in history %}
         {% if r.kind == 'user' %}
-        <div class="msg user" data-id="{{ r.id }}"><div class="who">You</div>
+        <div class="msg user {{ 'autonomous' if r.autonomous else '' }}" data-id="{{ r.id }}">
+          <div class="who">{{ 'Her own initiative' if r.autonomous else 'You' }}</div>
           {% if r.image_ref %}
           <img class="chatimg" src="/api/images/{{ r.image_ref }}" alt="{{ r.image_name or 'shared image' }}">
           {% endif %}
@@ -53,7 +59,9 @@
             <button class="iconbtn act-copy">copy</button>
           </div></div>
         {% elif r.kind == 'assistant' %}
-        <div class="msg assistant" data-id="{{ r.id }}"><div class="who">Seira</div><span class="body">{{ r.text }}</span>
+        <div class="msg assistant {{ 'autonomous' if r.autonomous else '' }}" data-id="{{ r.id }}">
+          <div class="who">{{ 'Seira — acting on her own' if r.autonomous else 'Seira' }}</div>
+          <span class="body">{{ r.text }}</span>
           <div class="actions">
             <button class="iconbtn act-speak">read aloud</button>
             <button class="iconbtn act-copy">copy</button>
@@ -98,6 +106,17 @@
               <option value="long">Long (~2000 characters)</option>
             </select>
           </div>
+          <div class="traysection">
+            <span class="trayheading">Mode</span>
+            <span class="muted" style="font-size:.82rem">She acts on her own, unprompted,
+              until stopped — a real, running kill switch appears above the chat while active.</span>
+            <select id="modeselect">
+              <option value="" selected>Off</option>
+              <option value="exploration">Exploration — free action: search, generate, create</option>
+              <option value="contemplation">Contemplation — inner reflection, self-talk</option>
+            </select>
+            <button class="gold" id="modestart" type="button" style="margin-top:.5rem">Start</button>
+          </div>
         </div>
         <textarea id="message" placeholder="Speak with her." rows="1"></textarea>
         <button class="roundbtn" id="micbtn" aria-label="Voice capture" title="Voice capture">
@@ -121,6 +140,17 @@ const msgs = document.getElementById('msgs');
 const input = document.getElementById('message');
 const modelselect = document.getElementById('modelselect');
 const lengthselect = document.getElementById('lengthselect');
+// Declared here, early, on purpose: sidebar is referenced by a click
+// handler further down (rename/archive) well before this file's old
+// location for this declaration. A `const` referenced anywhere in a
+// script before its own declaration line throws immediately — and
+// silently kills every listener registered afterward in the same
+// script block, including the collapse logic much further down. Real,
+// live bug (2026-08-31): the sidebar never collapsed because THIS
+// error fired first, before those listeners could ever attach.
+const sidebar = document.getElementById('sidebar');
+const shell = document.getElementById('shell');
+const edgetab = document.getElementById('edgetab');
 let attachment = null;
 let busy = false;
 let lastUserEl = null;  // fixes the edit-inactive bug: set once the real id arrives
@@ -491,9 +521,6 @@ sidebar.addEventListener('click', async (e) => {
 });
 
 // Sidebar: tiny edge tab toggles it; clicking the live chat auto-collapses.
-const sidebar = document.getElementById('sidebar');
-const shell = document.getElementById('shell');
-const edgetab = document.getElementById('edgetab');
 function setSidebar(open) {
   shell.classList.toggle('sidebar-collapsed', !open);
   edgetab.textContent = open ? '‹' : '›';
@@ -617,6 +644,72 @@ micbtn.addEventListener('click', () => {
 document.querySelectorAll('.msg.assistant .body').forEach(b => {
   b.innerHTML = renderBody(b.textContent);
 });
+
+// ── Autonomous mode: start/stop, and the persistent kill-switch bar ──
+// Deliberately simple polling, not a live push channel: while a mode
+// is active, this checks status every 15s. If her turn_count has gone
+// up since the last check, a fresh autonomous turn landed — reload to
+// show it. At ~60s between her turns this is a light, honest v1, not
+// instant, and that's stated in the bar's own label rather than
+// implied otherwise.
+const modeselect = document.getElementById('modeselect');
+const modestart = document.getElementById('modestart');
+const autonomybar = document.getElementById('autonomybar');
+const autonomylabel = document.getElementById('autonomylabel');
+const autonomystop = document.getElementById('autonomystop');
+const AUTONOMY_PACING_SECONDS = {{ autonomy_pacing_seconds | tojson }};
+let lastSeenTurnCount = null;
+
+function renderAutonomyStatus(s) {
+  if (!s.active) {
+    autonomybar.hidden = true;
+    lastSeenTurnCount = null;
+    return;
+  }
+  autonomybar.hidden = false;
+  const modeName = s.mode === 'exploration' ? 'Exploration' : 'Contemplation';
+  const pacingMin = Math.max(1, Math.round(AUTONOMY_PACING_SECONDS / 60));
+  autonomylabel.textContent = s.stopping
+    ? `${modeName} — finishing her current turn, then stopping…`
+    : `${modeName} — acting on her own (turn ${s.turn_count}) — next action in up to ~${pacingMin}m`;
+  if (lastSeenTurnCount !== null && s.turn_count > lastSeenTurnCount) {
+    location.reload();  // a new autonomous turn landed — show it
+  }
+  lastSeenTurnCount = s.turn_count;
+}
+
+async function pollAutonomyStatus() {
+  try {
+    const r = await fetch('/api/autonomy/status');
+    if (r.ok) renderAutonomyStatus(await r.json());
+  } catch (e) { /* transient network hiccup — try again next tick */ }
+}
+
+if (modestart) modestart.addEventListener('click', async () => {
+  const mode = modeselect.value;
+  if (!mode) { autonomystop.click(); return; }  // "Off" selected: stop if running
+  modestart.disabled = true;
+  try {
+    const r = await fetch('/api/autonomy/start', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode, conv_id: CONV}),
+    });
+    const d = await r.json();
+    if (!r.ok) { alert(d.detail || 'Could not start autonomous mode.'); }
+    else { renderAutonomyStatus(d); tray.classList.remove('open'); }
+  } finally { modestart.disabled = false; }
+});
+
+autonomystop.addEventListener('click', async () => {
+  autonomystop.disabled = true;
+  try {
+    const r = await fetch('/api/autonomy/stop', {method: 'POST'});
+    if (r.ok) renderAutonomyStatus(await r.json());
+  } finally { autonomystop.disabled = false; }
+});
+
+pollAutonomyStatus();
+setInterval(pollAutonomyStatus, 15000);
 
 requestAnimationFrame(scrollEnd);
 </script>
