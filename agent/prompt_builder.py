@@ -2016,7 +2016,20 @@ def load_soul_md(context_length: Optional[int] = None) -> Optional[str]:
             logger.debug("Seira founded-check failed; using SOUL.md path: %s", e)
         if founded:
             try:
-                return render_identity_block()
+                block = render_identity_block()
+                # Same deliberate, narrow exception as
+                # seira_bridge.system_prompt_block(): a concise index of
+                # her living projects (name, one sentence, tag — never
+                # contents), always present so both paths stay
+                # consistent rather than one silently lacking it.
+                try:
+                    from seira_web.projects import concise_index_text
+                    index_text = concise_index_text()
+                    if index_text:
+                        block += "\n\n---\n\n" + index_text
+                except ImportError:
+                    pass
+                return block
             except SeiraHaltedError:
                 raise  # Art. 32.3 — a halted Seira does not converse.
             except SeiraCoreError as e:
