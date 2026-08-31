@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Archive{% endblock %}
+{% block body %}
+<div class="frame">
+<div class="tabs" id="tabs">
+  <button class="tab active" data-tab="projects">Projects</button>
+  <button class="tab" data-tab="loose">Documents</button>
+  <button class="tab" data-tab="images">Images</button>
+</div>
+
+<p class="muted" style="margin:.8rem 0 1.2rem">
+  A window into her living Corpus, exactly as she's organized it —
+  read-only. Projects marked <em>her own initiative</em> are ones she
+  started unprompted; everything else was asked for.
+</p>
+
+<div class="tabpanel" data-panel="projects">
+  {% for p in projects %}
+  <div class="card">
+    <h2>{{ p.name }}
+      <span class="muted" style="font-size:.75rem;font-weight:normal">[{{ p.tag }}]</span>
+      {% if p.get("initiative", "self") == "self" %}
+      <span class="muted" style="font-size:.72rem">· her own initiative</span>
+      {% endif %}
+    </h2>
+    {% if p.blurb %}<p style="margin:.2rem 0 .6rem">{{ p.blurb }}</p>{% endif %}
+    <p class="muted" style="margin:0 0 .6rem">created {{ p.created }} · updated {{ p.updated }} ·
+      {{ p.files|length }} document{{ "s" if p.files|length != 1 }}</p>
+    {% for f in p.files %}
+    <div class="entry">
+      <a href="/archive/reference/{{ f.ref_id }}">{{ f.filename }}</a>
+      <span class="muted"> · [{{ f.tag }}] · {{ f.source }} · {{ f.length }} chars</span>
+    </div>
+    {% else %}
+    <p class="muted">No documents filed here yet.</p>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No living projects yet.</p>
+  {% endfor %}
+</div>
+
+<div class="tabpanel" data-panel="loose" hidden>
+  <div class="card">
+    <h2>Documents not filed under any project</h2>
+    {% for r in loose_references %}
+    <div class="entry">
+      <a href="/archive/reference/{{ r.ref_id }}">{{ r.filename }}</a>
+      <span class="muted"> · [{{ r.tag }}] · {{ r.source }} · {{ r.length }} chars · {{ r.created }}</span>
+    </div>
+    {% else %}
+    <p class="muted">Nothing here — every document is filed under a project, or there are none yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="tabpanel" data-panel="images" hidden>
+  <div class="card">
+    <h2>Images</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:1rem">
+      {% for i in images %}
+      <a href="/api/images/{{ i.img_id }}" target="_blank" rel="noopener"
+         style="width:9rem;text-align:center">
+        <img src="/api/images/{{ i.img_id }}" alt="{{ i.filename }}"
+             style="width:100%;height:9rem;object-fit:cover;border-radius:6px;border:1px solid var(--edge)">
+        <div class="muted" style="font-size:.72rem;margin-top:.3rem">[{{ i.tag }}]</div>
+      </a>
+      {% else %}
+      <p class="muted">No images saved yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab'); if (!btn) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  const name = btn.dataset.tab;
+  document.querySelectorAll('.tabpanel').forEach(p =>
+    p.hidden = p.dataset.panel !== name);
+});
+</script>
+{% endblock %}

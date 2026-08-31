@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ rec.filename }}{% endblock %}
+{% block body %}
+<div class="frame">
+  <p><a href="/archive">&larr; Back to Archive</a></p>
+  <div class="card">
+    <h2>{{ rec.filename }}</h2>
+    <p class="muted" style="margin:0 0 1rem">
+      [{{ rec.tag }}] · {{ rec.source }} · {{ rec.length }} characters · saved {{ rec.created }}
+      {%- if rec.project %} · part of a project{% endif %}
+    </p>
+    {% if truncated %}
+    <p class="muted" style="margin:0 0 1rem">
+      This document is long — showing the first {{ text|length }} of {{ rec.length }} characters.
+    </p>
+    {% endif %}
+    <pre style="white-space:pre-wrap;font-family:inherit;margin:0">{{ text }}</pre>
+  </div>
+</div>
+{% endblock %}
