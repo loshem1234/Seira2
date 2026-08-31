@@ -93,7 +93,7 @@ def _save_index(index: Dict[str, Dict[str, Any]]) -> None:
 
 
 def save_reference(filename: str, text: str, source: str = "upload",
-                   tag: str = "") -> Dict[str, Any]:
+                   tag: str = "", project: str = "") -> Dict[str, Any]:
     if not text.strip():
         raise ValueError("Cannot save an empty reference.")
     index = _load_index()
@@ -105,6 +105,7 @@ def save_reference(filename: str, text: str, source: str = "upload",
         "ref_id": ref_id, "filename": filename[:200], "source": source,
         "length": len(text), "created": _now(),
         "tag": _slugify(tag) if tag.strip() else default_tag,
+        "project": project or None,
     }
     # Same disambiguation discipline as images.py: a colliding tag gets
     # a short suffix rather than silently shadowing an older document
@@ -115,6 +116,21 @@ def save_reference(filename: str, text: str, source: str = "upload",
     index[ref_id] = record
     _save_index(index)
     return record
+
+
+def set_project(ref_id: str, proj_id: Optional[str]) -> Dict[str, Any]:
+    """Associate (or clear, with proj_id=None) an existing reference
+    with a project — the retroactive path: she notices two documents
+    already share a theme and groups them after the fact, not only at
+    the moment either was created."""
+    index = _load_index()
+    rec = index.get(ref_id)
+    if rec is None:
+        raise ValueError(f"No reference {ref_id!r}.")
+    rec["project"] = proj_id
+    index[ref_id] = rec
+    _save_index(index)
+    return rec
 
 
 def set_tag(ref_id: str, tag: str) -> Dict[str, Any]:
