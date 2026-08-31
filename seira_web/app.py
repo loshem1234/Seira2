@@ -625,6 +625,124 @@ def create_app(llm_client_factory=None) -> FastAPI:
         return JSONResponse({"total_accounts": len(accounts),
                              "accounts": accounts})
 
+    @app.get("/api/admin/self-check")
+    def admin_self_check(request: Request):
+        """The operator's ground truth: what is ACTUALLY loaded right now.
+
+        Same gating as /api/admin/tenants (SEIRA_ADMIN_TOKEN; 404 when
+        unconfigured, 401 on a wrong token). Reports the same measured
+        inventory that gets injected into her prompt each hermes-mode
+        turn — runtime mode, identity source, real tool list, Psyche
+        provider status, delegation-gate status — so 'is it working?'
+        is answered by visiting a URL, never by asking her and
+        debugging her self-description.
+
+        In hermes mode this constructs a real AIAgent (no model call is
+        made) to measure the live tool surface; expect it to take a few
+        seconds and to log the normal agent-init lines. In direct mode
+        it reports the direct-mode facts instead.
+        """
+        import hmac as _hmac
+        configured = os.environ.get("SEIRA_ADMIN_TOKEN", "").strip()
+        if not configured:
+            raise HTTPException(status_code=404)
+        presented = request.headers.get("x-admin-token", "")
+        if not _hmac.compare_digest(presented, configured):
+            raise HTTPException(status_code=401)
+
+        mode = os.environ.get("SEIRA_SANCTUM_RUNTIME", "direct")
+        if mode != "hermes":
+            from seira_core.genesis import genesis_performed
+            try:
+                founded = bool(genesis_performed())
+            except SeiraCoreError:
+                founded = False
+            info = {
+                "runtime": "direct",
+                "founded": founded,
+                "note": ("Direct mode: Anthropic API called directly; her "
+                         "Psyche tools come from the in-process provider, "
+                         "plus native web search if enabled, plus any "
+                         "SEIRA_EXTRA_TOOLSETS bridge toolsets. Set "
+                         "SEIRA_SANCTUM_RUNTIME=hermes to run atop Hermes."),
+                "extra_toolsets": os.environ.get("SEIRA_EXTRA_TOOLSETS", ""),
+                "web_search_enabled": WEB_SEARCH_GLOBALLY_ENABLED,
+            }
+            return JSONResponse(info)
+
+        try:
+            from seira_web.hermes_session import _build_agent, runtime_inventory
+            agent = _build_agent(session_id="self-check", emit=lambda e: None)
+            inventory = runtime_inventory(agent)
+        except Exception as e:
+            # An import or construction failure IS the diagnostic result —
+            # report it as data instead of a 500, so the operator sees the
+            # real error text in the browser.
+            return JSONResponse({"runtime": "hermes",
+                                 "construction_failed": True,
+                                 "error": f"{type(e).__name__}: {e}"},
+                                status_code=200)
+        return JSONResponse(inventory)
+
+    @app.get("/archive", response_class=HTMLResponse)
+    def archive_page(request: Request, account: dict = Depends(require_account)):
+        """Read-only view of her live Corpus for the Architect: every
+        living project (hers and requested), every document — grouped
+        and loose — and every image, exactly as she's organized them.
+        Nothing here is editable; this is a window, not a console."""
+        from seira_core.genesis import genesis_performed
+        from seira_core.tripwire import is_halted
+        from seira_web import projects as projs
+        from seira_web import references as refs
+        from seira_web import images as imgs
+
+        with tenant_scope(account["tenant_id"]):
+            if not genesis_performed():
+                return RedirectResponse("/onboard", status_code=303)
+            if is_halted():
+                return templates.TemplateResponse(request, "halted.html", {},
+                                                  status_code=503)
+            all_projects = projs.list_projects()
+            projects_view = []
+            for p in all_projects:
+                projects_view.append({**p, "files": projs.project_files(p["proj_id"])})
+            loose = [r for r in refs.list_references() if not r.get("project")]
+            image_list = imgs.list_images()
+        return templates.TemplateResponse(request, "archive.html", {
+            "projects": projects_view, "loose_references": loose,
+            "images": image_list,
+        })
+
+    @app.get("/archive/reference/{ref_id}", response_class=HTMLResponse)
+    def archive_reference_view(request: Request, ref_id: str,
+                               account: dict = Depends(require_account)):
+        """Read-only full text of one document. read_slice() caps each
+        call at 40,000 chars (the bound that keeps HER reads bounded) —
+        for a human reading in a browser, not a model's context budget,
+        this loops calls to assemble a larger single view instead of
+        building a pagination UI, up to a generous cap beyond which a
+        document is genuinely unusual to read in one sitting anyway."""
+        from seira_web import references as refs
+        VIEW_CAP = 300_000
+        with tenant_scope(account["tenant_id"]):
+            rec = refs.resolve_ref(ref_id)
+            if rec is None:
+                raise HTTPException(status_code=404, detail="No such reference.")
+            chunks, offset = [], 0
+            while offset < VIEW_CAP:
+                page = refs.read_slice(rec["ref_id"], offset, 40_000)
+                if not page["found"]:
+                    break
+                chunks.append(page["text"])
+                offset += page["length"]
+                if not page["has_more"]:
+                    break
+            text = "".join(chunks)
+            truncated = offset < page.get("total_length", offset)
+        return templates.TemplateResponse(request, "archive_reference.html", {
+            "rec": rec, "text": text, "truncated": truncated,
+        })
+
     @app.get("/diary", response_class=HTMLResponse)
     def diary_page(request: Request, account: dict = Depends(require_account)):
         from seira_core.diary import DiaryStore
