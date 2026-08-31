@@ -5,7 +5,6 @@ kill-switch semantics: stop takes effect before the next turn, not
 mid-generation.
 """
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -128,8 +127,7 @@ class _FakeConvs:
         pass
 
 
-@pytest.mark.asyncio
-async def test_loop_stops_at_max_turns_safety_cap(monkeypatch):
+def test_loop_stops_at_max_turns_safety_cap(monkeypatch):
     """The automatic safety cap Loshem confirmed (2026-08-31): even
     with no manual stop, the loop must not run forever unattended."""
     from seira_web import autonomy_loop
@@ -154,15 +152,14 @@ async def test_loop_stops_at_max_turns_safety_cap(monkeypatch):
     monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes", fake_run_turn)
 
     autonomy.start("tenant-a", "conv-1", "exploration")
-    await autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+    autonomy_loop._loop("tenant-a", "conv-1", "exploration")
 
     # Stopped at MAX_TURNS=3, not run indefinitely.
     assert call_count["n"] == 3
     assert autonomy.status("tenant-a")["active"] is False  # cleared on exit
 
 
-@pytest.mark.asyncio
-async def test_loop_stops_when_stop_is_requested_between_turns(monkeypatch):
+def test_loop_stops_when_stop_is_requested_between_turns(monkeypatch):
     from seira_web import autonomy_loop
     monkeypatch.setattr(autonomy_loop, "MAX_TURNS", 1000)
     monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
@@ -187,14 +184,13 @@ async def test_loop_stops_when_stop_is_requested_between_turns(monkeypatch):
     monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes", fake_run_turn)
 
     autonomy.start("tenant-a", "conv-1", "exploration")
-    await autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+    autonomy_loop._loop("tenant-a", "conv-1", "exploration")
 
     # The in-flight turn (2) finished and was kept; no turn 3 started.
     assert call_count["n"] == 2
 
 
-@pytest.mark.asyncio
-async def test_loop_stops_immediately_if_seira_is_halted(monkeypatch):
+def test_loop_stops_immediately_if_seira_is_halted(monkeypatch):
     """A halted Seira must not act autonomously either — Art. 32.3
     applies here exactly as it does to a normal turn."""
     from seira_web import autonomy_loop
@@ -208,7 +204,7 @@ async def test_loop_stops_immediately_if_seira_is_halted(monkeypatch):
                         lambda *a, **kw: called.__setitem__("n", called["n"] + 1))
 
     autonomy.start("tenant-a", "conv-1", "exploration")
-    await autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+    autonomy_loop._loop("tenant-a", "conv-1", "exploration")
 
     assert called["n"] == 0  # never even attempted a turn
 
@@ -218,8 +214,7 @@ class _NullContext:
     def __exit__(self, *a): return False
 
 
-@pytest.mark.asyncio
-async def test_turn_timeout_stops_the_loop_cleanly(monkeypatch):
+def test_turn_timeout_stops_the_loop_cleanly(monkeypatch):
     """The likely real cause of the live-reported symptom (2026-08-31):
     'finishing her current turn, then stopping' stuck with no bound. A
     hung or unusually slow turn must not block the loop forever."""
@@ -244,14 +239,13 @@ async def test_turn_timeout_stops_the_loop_cleanly(monkeypatch):
     monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes", hanging_run_turn)
 
     autonomy.start("tenant-a", "conv-1", "exploration")
-    await autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+    autonomy_loop._loop("tenant-a", "conv-1", "exploration")
 
     # The loop exited (didn't hang forever) and cleared state.
     assert autonomy.status("tenant-a")["active"] is False
 
 
-@pytest.mark.asyncio
-async def test_live_events_are_published_during_a_turn(monkeypatch):
+def test_live_events_are_published_during_a_turn(monkeypatch):
     """The real fix for 'I wanted to see what she's doing live':
     events must actually reach the broadcast registry, not be
     discarded (the first version of this loop used emit=lambda e: None)."""
@@ -277,7 +271,7 @@ async def test_live_events_are_published_during_a_turn(monkeypatch):
 
     subscriber = live_events.subscribe("conv-1")
     autonomy.start("tenant-a", "conv-1", "exploration")
-    await autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+    autonomy_loop._loop("tenant-a", "conv-1", "exploration")
 
     received = []
     while not subscriber.empty():
@@ -336,3 +330,69 @@ def test_unsubscribe_stops_further_delivery():
     live_events.unsubscribe("conv-y", q)
     live_events.publish("conv-y", {"event": "tool"})
     assert q.empty()
+
+
+# ---------------- the actual original bug, reproduced and proven fixed ----------------
+
+def test_start_works_when_called_from_a_worker_thread(monkeypatch):
+    """The real, live bug (2026-08-31): 'stuck at turn 0, running 2
+    minutes, nothing enters the chat.' Root cause, confirmed by
+    reproduction before writing this fix: the first version scheduled
+    the loop via asyncio.create_task() from inside a synchronous
+    FastAPI route handler — which runs in a thread-pool worker thread,
+    not on the event loop. asyncio.create_task() requires a running
+    event loop IN THE CALLING THREAD and raised RuntimeError every
+    time, silently, after autonomy.start() had already marked the run
+    "active" — leaving it stuck forever with no loop ever actually
+    running. This test simulates that exact calling context (start()
+    invoked from a worker thread while a real event loop runs
+    elsewhere) and proves the loop now actually executes."""
+    import threading
+    import time as _time
+    from seira_web import autonomy_loop
+
+    monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0.05)
+    monkeypatch.setattr(autonomy_loop, "MAX_TURNS", 1)
+    monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
+
+    fake_convs = _FakeConvs()
+    monkeypatch.setattr("seira_web.conversations.append", fake_convs.append)
+    monkeypatch.setattr("seira_web.conversations.model_history", fake_convs.model_history)
+    monkeypatch.setattr("seira_web.conversations.touch", fake_convs.touch)
+    monkeypatch.setattr("seira_core.tripwire.is_halted", lambda: False)
+    monkeypatch.setattr("seira_core.tenancy.tenant_scope",
+                        lambda *a, **kw: _NullContext())
+
+    call_count = {"n": 0}
+
+    def fake_run_turn(conv_id, prompt, history, emit):
+        call_count["n"] += 1
+        return {"reply": "did something", "messages": []}
+
+    monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes", fake_run_turn)
+
+    result_holder = {}
+
+    def worker():
+        # Exactly what a sync FastAPI route handler does: call
+        # autonomy_loop.start() from a plain (non-event-loop) thread.
+        result_holder["rec"] = autonomy_loop.start("tenant-worker", "conv-1", "exploration")
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join(timeout=2)
+
+    assert "rec" in result_holder, "start() must not raise when called from a worker thread"
+    assert result_holder["rec"]["active"] is True
+
+    # Give the real background loop actual wall-clock time to run.
+    for _ in range(40):  # up to ~2s
+        if not autonomy.status("tenant-worker")["active"]:
+            break
+        _time.sleep(0.05)
+
+    assert call_count["n"] >= 1, (
+        "the loop must have actually executed a turn — this is exactly "
+        "what 'stuck at turn 0' looked like when it didn't"
+    )
+    assert autonomy.status("tenant-worker")["active"] is False  # completed and cleared
