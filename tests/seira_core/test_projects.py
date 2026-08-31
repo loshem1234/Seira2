@@ -386,3 +386,93 @@ def test_project_list_tool_filters_by_initiative(founded):
     out = json.loads(provider.handle_tool_call(
         "seira_project_list", {"initiative": "self"}))
     assert len(out["projects"]) == 1 and out["projects"][0]["name"] == "Mine"
+
+
+# ---------------- session summaries / resume: pick up where we left off ----------------
+
+def test_reference_gains_is_summary_flag(home):
+    proj_rec = projs.create_project("Checkpoint Test")
+    rec = refs.save_reference("session-1.md", "notes from today",
+                              project=proj_rec["proj_id"], is_summary=True)
+    assert rec["is_summary"] is True
+
+
+def test_ordinary_reference_defaults_is_summary_false(home):
+    rec = refs.save_reference("plain.md", "just a normal document")
+    assert rec["is_summary"] is False
+
+
+def test_session_summaries_lists_only_flagged_documents(home):
+    proj_rec = projs.create_project("Mixed Files")
+    refs.save_reference("data.md", "raw data", project=proj_rec["proj_id"])
+    refs.save_reference("summary-1.md", "session summary", project=proj_rec["proj_id"],
+                        is_summary=True)
+    summaries = projs.session_summaries(proj_rec["proj_id"])
+    assert len(summaries) == 1 and summaries[0]["filename"] == "summary-1.md"
+
+
+def test_resume_with_no_summary_falls_back_to_manifest_honestly(home):
+    proj_rec = projs.create_project("No Checkpoint Yet")
+    refs.save_reference("some-doc.md", "content", project=proj_rec["proj_id"])
+    result = projs.resume(proj_rec["proj_id"])
+    assert result["found"] is True
+    assert result["has_session_summary"] is False
+    assert "No session summary" in result["note"]
+    assert result["mode"] == "manifest"  # the honest fallback, not a fake resume
+
+
+def test_resume_returns_latest_summary_in_full(home):
+    proj_rec = projs.create_project("Ongoing Work")
+    refs.save_reference("summary-day1.md", "Day 1: started the outline.",
+                        project=proj_rec["proj_id"], is_summary=True)
+    refs.save_reference("summary-day2.md", "Day 2: finished the draft, need review next.",
+                        project=proj_rec["proj_id"], is_summary=True)
+    result = projs.resume(proj_rec["proj_id"])
+    assert result["found"] is True and result["has_session_summary"] is True
+    assert "Day 2" in result["latest_summary"]["text"]
+    assert "need review next" in result["latest_summary"]["text"]
+
+
+def test_resume_lists_earlier_summaries_for_deeper_history(home):
+    proj_rec = projs.create_project("Long Running")
+    refs.save_reference("s1.md", "first checkpoint", project=proj_rec["proj_id"],
+                        is_summary=True)
+    refs.save_reference("s2.md", "second checkpoint", project=proj_rec["proj_id"],
+                        is_summary=True)
+    refs.save_reference("s3.md", "third and latest checkpoint",
+                        project=proj_rec["proj_id"], is_summary=True)
+    result = projs.resume(proj_rec["proj_id"])
+    assert "third and latest" in result["latest_summary"]["text"]
+    assert len(result["earlier_summaries"]) == 2  # s1 and s2, not the latest
+
+
+def test_resume_of_unknown_project_is_honest(home):
+    result = projs.resume("no-such-project")
+    assert result["found"] is False
+
+
+def test_project_resume_tool_end_to_end(founded):
+    provider, conv_id = founded
+    created = json.loads(provider.handle_tool_call(
+        "seira_project_create", {"name": "Resume Tool Test", "initiative": "self"}))
+    provider.handle_tool_call("seira_create_file", {
+        "format": "md", "filename": "checkpoint",
+        "content": "# Where we left off\n\nWaiting on the API design decision.",
+        "project": created["proj_id"], "is_summary": True,
+    })
+    out = json.loads(provider.handle_tool_call(
+        "seira_project_resume", {"project": created["proj_id"]}))
+    assert out["ok"] is True
+    assert "API design decision" in out["latest_summary"]["text"]
+
+
+def test_create_file_is_summary_flag_reaches_the_reference(founded):
+    provider, conv_id = founded
+    created = json.loads(provider.handle_tool_call(
+        "seira_project_create", {"name": "Flag Check", "initiative": "self"}))
+    out = json.loads(provider.handle_tool_call("seira_create_file", {
+        "format": "md", "filename": "checkpoint", "content": "content here",
+        "project": created["proj_id"], "is_summary": True,
+    }))
+    rec = refs.resolve_ref(out["reference_tag"])
+    assert rec["is_summary"] is True

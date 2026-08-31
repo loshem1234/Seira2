@@ -145,6 +145,24 @@ def test_archive_link_present_in_navigation(client):
     assert '/archive' in page
 
 
+def test_archive_page_marks_session_checkpoints(client):
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        from seira_web import projects as projs
+        from seira_web import references as refs
+        proj = projs.create_project("Checkpointed Project")
+        refs.save_reference("checkpoint.md", "where we left off",
+                            project=proj["proj_id"], is_summary=True)
+        refs.save_reference("data.md", "ordinary data", project=proj["proj_id"])
+
+    page = client.get("/archive").text
+    assert "session checkpoint" in page
+    # only the flagged one should carry the marker
+    assert page.count("session checkpoint") == 1
+
+
 def _make_text_pdf_bytes() -> bytes:
     import io
     from pypdf import PdfWriter
