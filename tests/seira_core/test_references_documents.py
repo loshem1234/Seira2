@@ -41,6 +41,61 @@ def test_length_is_bounded_per_call(home):
     assert page["length"] == 40_000  # capped, never the whole thing in one call
 
 
+# ---------------- tagging (mirrors images.py's design exactly) ----------------
+
+def test_reference_gets_a_default_tag_from_filename(home):
+    rec = refs.save_reference("Q3 Report.pdf", "quarterly numbers here")
+    assert rec["tag"] == "q3-report"
+
+
+def test_explicit_tag_is_honored(home):
+    rec = refs.save_reference("notes.txt", "content", tag="my special notes")
+    assert rec["tag"] == "my-special-notes"
+
+
+def test_colliding_tag_is_disambiguated_not_overwritten(home):
+    a = refs.save_reference("a.txt", "first document", tag="shared-name")
+    b = refs.save_reference("b.txt", "second document", tag="shared-name")
+    assert a["tag"] == "shared-name"
+    assert b["tag"] != "shared-name"
+    assert b["tag"].startswith("shared-name-")
+
+
+def test_set_tag_renames_and_enforces_uniqueness(home):
+    a = refs.save_reference("a.txt", "content a")
+    b = refs.save_reference("b.txt", "content b")
+    refs.set_tag(a["ref_id"], "new-name")
+    assert refs.find_by_tag("new-name")["ref_id"] == a["ref_id"]
+    with pytest.raises(ValueError):
+        refs.set_tag(b["ref_id"], "new-name")  # collision, refused not silent
+
+
+def test_resolve_ref_finds_by_id_tag_or_filename(home):
+    rec = refs.save_reference("brief.txt", "project brief content", tag="the-brief")
+    assert refs.resolve_ref(rec["ref_id"])["ref_id"] == rec["ref_id"]
+    assert refs.resolve_ref("the-brief")["ref_id"] == rec["ref_id"]
+    assert refs.resolve_ref("brief.txt")["ref_id"] == rec["ref_id"]
+    assert refs.resolve_ref("nothing-like-this") is None
+
+
+def test_read_slice_reports_tag_and_source(home):
+    refs.save_reference("web-page.txt", "extracted content", source="web", tag="found-it")
+    result = refs.read_slice("found-it")
+    assert result["found"] and result["tag"] == "found-it" and result["source"] == "web"
+
+
+def test_old_records_without_a_tag_get_backfilled_on_load(home, tmp_path):
+    """Records saved before tagging existed have no 'tag' key at all —
+    the exact migration gap images.py already hit in production once."""
+    rec = refs.save_reference("legacy.txt", "old content")
+    # Simulate a pre-tagging record by stripping the tag from the index.
+    index = refs._load_index()
+    del index[rec["ref_id"]]["tag"]
+    refs._save_index(index)
+    reloaded = refs.list_references()
+    assert reloaded[0]["tag"]  # backfilled, not missing/crashing
+
+
 # ---------------- document extraction ----------------
 
 def test_txt_and_md_extraction():

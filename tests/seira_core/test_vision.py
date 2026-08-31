@@ -175,13 +175,33 @@ def test_recall_by_tag_returns_same_image_as_by_id(founded):
 
 
 def test_tool_recall_by_tag_end_to_end(founded):
+    """seira_image_recall returns a genuine dict — Hermes's native
+    multimodal envelope — not a json.dumps'd string like every other
+    tool here. This is deliberate (see seira_bridge's handler
+    docstring and docs/seira/DECISIONS.md): it's what makes Hermes's
+    own truncation/persistence machinery recognize and exempt real
+    image content instead of treating it as an oversized plain
+    string."""
     provider, conv_id = founded
     from seira_web import images
-    images.save_image("port.png", "image/png", b"portrait bytes",
-                      tag="my portrait ref")
-    out = json.loads(provider.handle_tool_call("seira_image_recall",
-                                               {"ref": "my-portrait-ref"}))
-    assert out["ok"] is True and out["tag"] == "my-portrait-ref"
+    import base64
+    raw = b"portrait bytes"
+    images.save_image("port.png", "image/png", raw, tag="my portrait ref")
+    out = provider.handle_tool_call("seira_image_recall", {"ref": "my-portrait-ref"})
+
+    assert isinstance(out, dict), "must be a real dict, not a JSON string"
+    assert out["_multimodal"] is True
+    assert out["meta"]["tag"] == "my-portrait-ref"
+    assert out["meta"]["kind"] == "image_recall"
+    assert "my-portrait-ref" in out["text_summary"]
+
+    image_parts = [p for p in out["content"] if p["type"] == "image_url"]
+    assert len(image_parts) == 1
+    data_uri = image_parts[0]["image_url"]["url"]
+    assert data_uri.startswith("data:image/png;base64,")
+    # The actual bytes must round-trip exactly — this is the whole point.
+    encoded = data_uri.split(",", 1)[1]
+    assert base64.b64decode(encoded) == raw
 
 
 def test_image_list_tool(founded):
