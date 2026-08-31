@@ -716,7 +716,44 @@ def create_app(llm_client_factory=None) -> FastAPI:
     @app.get("/api/autonomy/status")
     def autonomy_status(account: dict = Depends(require_account)):
         from seira_web import autonomy_loop
-        return JSONResponse(autonomy_loop.status(account["tenant_id"]))
+        rec = autonomy_loop.status(account["tenant_id"])
+        if rec.get("active"):
+            import datetime as _dt
+            started = _dt.datetime.fromisoformat(rec["started_at"])
+            rec["elapsed_seconds"] = int((_dt.datetime.now(_dt.timezone.utc)
+                                          - started).total_seconds())
+        return JSONResponse(rec)
+
+    @app.get("/api/conversations/{conv_id}/live")
+    def conversation_live(conv_id: str, account: dict = Depends(require_account)):
+        """Real-time feed of a conversation's activity for browsers
+        already viewing it — the piece autonomous mode needed and the
+        first version of this feature didn't have: without this, an
+        autonomous turn happened entirely invisibly, discovered only
+        by a page reload after the fact. Same SSE shape /api/chat/stream
+        already uses, so the frontend renders both through one shared
+        function. Publish-only: nothing is buffered for a subscriber
+        that connects after an event already fired (the page's own
+        server-rendered history already covers everything up to load
+        time; this only needs to carry what happens from here forward)."""
+        import queue as _q
+        from fastapi.responses import StreamingResponse
+        from seira_web import live_events
+        q = live_events.subscribe(conv_id)
+
+        def sse():
+            try:
+                while True:
+                    try:
+                        item = q.get(timeout=20)
+                    except _q.Empty:
+                        yield ": keepalive\n\n"  # holds the connection through proxies
+                        continue
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+            finally:
+                live_events.unsubscribe(conv_id, q)
+
+        return StreamingResponse(sse(), media_type="text/event-stream")
 
     @app.get("/archive", response_class=HTMLResponse)
     def archive_page(request: Request, account: dict = Depends(require_account)):
