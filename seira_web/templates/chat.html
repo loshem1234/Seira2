@@ -627,7 +627,9 @@ document.getElementById('fileinput').addEventListener('change', async (e) => {
     note.appendChild(document.createTextNode(
       `Attached: ${d.name} (tag: ${d.tag} \u2014 ask her to rename it if you'd like)`));
   } else {
-    attachment = {kind: 'document', name: d.name, text: d.text};
+    attachment = {kind: 'document', name: d.name, text: d.text,
+      ref_id: d.ref_id, total_length: d.total_length,
+      truncated_for_chat: d.truncated_for_chat};
     note.textContent = 'Attached: ' + d.name +
       (d.truncated_for_chat
         ? ` (${d.total_length.toLocaleString()} chars saved to her Corpus; she can recall more with seira_reference_recall)`
