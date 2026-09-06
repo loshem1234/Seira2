@@ -50,3 +50,15 @@ def publish(conv_id: str, event: Dict[str, Any]) -> None:
         subs = list(_subscribers.get(conv_id, ()))
     for q in subs:
         q.put(event)
+
+
+def has_subscribers(conv_id: str) -> bool:
+    """True if at least one browser is currently watching this
+    conversation's live feed. Used to gate self-triggered autonomy
+    (seira_autonomy_start): she can start acting autonomously on her
+    own initiative, but never into an empty room — someone has to
+    actually be able to see it happening, live, the same way starting
+    it from the UI always implies someone's there watching the screen
+    that button is on."""
+    with _lock:
+        return bool(_subscribers.get(conv_id))

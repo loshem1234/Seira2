@@ -263,6 +263,7 @@ def run_turn_via_hermes(
     user_message: str,
     history: List[Dict[str, Any]],
     emit: Callable[[Dict[str, Any]], None],
+    tenant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run one turn as a real Hermes agent turn.
 
@@ -271,27 +272,42 @@ def run_turn_via_hermes(
     Returns ``{"reply": str, "messages": List[Dict]}`` — persist
     ``messages`` as the new history for the next turn, exactly as the
     direct-API path in chat.py already does with its own message list.
+
+    ``tenant_id``, when given, is held in seira_web.turn_context for
+    the duration of this turn — the one thing a self-triggering tool
+    call (seira_autonomy_start/stop) needs that Hermes's own dispatch
+    never passes through on its own: which conversation it's actually
+    running in. Optional and defaults to not setting it, since most
+    callers of this function predate that need and don't have to care.
     """
-    emit({"event": "phase", "label": "Thinking"})
-    agent = _build_agent(session_id=conv_id or str(uuid.uuid4()), emit=emit)
+    from seira_web import turn_context
 
-    # Her measured self-knowledge rides in the ephemeral tier, which
-    # conversation_loop APPENDS after the stable identity tier — it can
-    # supplement who she is, never displace it (verified: effective =
-    # stable + "\n\n" + ephemeral in agent/conversation_loop.py).
-    inventory = runtime_inventory(agent)
-    block = capability_block(inventory)
-    existing = getattr(agent, "ephemeral_system_prompt", "") or ""
-    agent.ephemeral_system_prompt = (existing + "\n\n" + block).strip()
+    def _run():
+        emit({"event": "phase", "label": "Thinking"})
+        agent = _build_agent(session_id=conv_id or str(uuid.uuid4()), emit=emit)
 
-    from agent.conversation_loop import run_conversation
+        # Her measured self-knowledge rides in the ephemeral tier, which
+        # conversation_loop APPENDS after the stable identity tier — it can
+        # supplement who she is, never displace it (verified: effective =
+        # stable + "\n\n" + ephemeral in agent/conversation_loop.py).
+        inventory = runtime_inventory(agent)
+        block = capability_block(inventory)
+        existing = getattr(agent, "ephemeral_system_prompt", "") or ""
+        agent.ephemeral_system_prompt = (existing + "\n\n" + block).strip()
 
-    result = run_conversation(
-        agent,
-        user_message=user_message,
-        conversation_history=history,
-    )
-    final = result.get("final_response") or result.get("error") or ""
-    emit({"event": "reply", "text": final})
-    return {"reply": final, "messages": result.get("messages", history),
-            "inventory": inventory}
+        from agent.conversation_loop import run_conversation
+
+        result = run_conversation(
+            agent,
+            user_message=user_message,
+            conversation_history=history,
+        )
+        final = result.get("final_response") or result.get("error") or ""
+        emit({"event": "reply", "text": final})
+        return {"reply": final, "messages": result.get("messages", history),
+                "inventory": inventory}
+
+    if tenant_id and conv_id:
+        with turn_context.turn_scope(tenant_id, conv_id):
+            return _run()
+    return _run()

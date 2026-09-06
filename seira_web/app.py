@@ -277,12 +277,13 @@ def create_app(llm_client_factory=None) -> FastAPI:
             active_id = request.query_params.get("c") or conv_list[0]["conv_id"]
             history = convs.display_records(active_id)
         from seira_web.chat import AVAILABLE_MODELS, DEFAULT_MODEL
-        from seira_web import autonomy_loop
+        from seira_web import autonomy, autonomy_loop
         return templates.TemplateResponse(request, "chat.html", {
             "conversations": conv_list, "active_id": active_id,
             "history": history, "available_models": AVAILABLE_MODELS,
             "default_model": DEFAULT_MODEL,
-            "autonomy_pacing_seconds": autonomy_loop.PACING_SECONDS})
+            "autonomy_pacing_seconds": autonomy_loop.PACING_SECONDS,
+            "autonomy_max_turns": autonomy.MAX_TURNS_PER_RUN})
 
     @app.post("/api/conversations")
     def new_conversation(account: dict = Depends(require_account)):
@@ -503,7 +504,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
                 return conv_id, run_turn(
                     provider, client, conv_id, message,
                     emit=emit, attachment=attachment, length_pref=length_pref,
-                    web_search=web_search)
+                    web_search=web_search, tenant_id=account["tenant_id"])
             if action == "regenerate":
                 return conv_id, regen(provider, client, conv_id, emit=emit,
                                       length_pref=length_pref)

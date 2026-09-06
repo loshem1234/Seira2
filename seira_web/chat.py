@@ -189,6 +189,7 @@ def run_turn(
     attachment: Optional[Dict[str, str]] = None,
     length_pref: Optional[str] = None,
     web_search: bool = False,
+    tenant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """One full turn in a conversation.
 
@@ -196,6 +197,12 @@ def run_turn(
     (regeneration - the caller has already superseded the old answer).
     Caller is responsible for tenant scope and halt handling; a halted
     Seira raises from system_prompt_block and does not converse.
+
+    ``tenant_id``, when given, is threaded through to
+    hermes_session.run_turn_via_hermes so a self-triggering tool call
+    (seira_autonomy_start/stop) can find out which conversation it's
+    running in — see seira_web/turn_context.py. Optional; every
+    existing caller keeps working without it.
     """
     emit = emit or (lambda e: None)
 
@@ -219,7 +226,8 @@ def run_turn(
         # split; appending it to convs first would double it up.
         history = convs.model_history(conv_id)
         convs.append(conv_id, "user", **record_fields)
-        result = run_turn_via_hermes(conv_id, user_message, history, emit)
+        result = run_turn_via_hermes(conv_id, user_message, history, emit,
+                                     tenant_id=tenant_id)
         rec = convs.append(conv_id, "assistant", text=result["reply"])
         convs.touch(conv_id)
         return {"reply": result["reply"], "assistant_id": rec["id"], "tool_events": []}
