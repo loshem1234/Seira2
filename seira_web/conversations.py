@@ -22,7 +22,9 @@ Records: {"id": int, "ts": iso, "kind": "user"|"assistant"|"tool"|
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
+import fcntl
 import json
 import os
 import secrets
@@ -44,6 +46,43 @@ def _conv_path(conv_id: str) -> Path:
     if not conv_id.replace("-", "").isalnum():
         raise ValueError("Invalid conversation id.")
     return _conv_dir() / f"{conv_id}.jsonl"
+
+
+@contextlib.contextmanager
+def _conversation_lock(conv_id: str):
+    """Exclusive lock spanning an entire read, or an entire
+    read-modify-write, on one conversation's file.
+
+    Real, live bug (2026-09-06), reported twice, worsening as a
+    conversation grew longer: append() reads the whole file (to
+    compute the next sequential id), THEN writes separately — a
+    classic read-modify-write race with no protection at all before
+    this fix. Reproduced directly: 30 concurrent unlocked appends
+    produced 18 duplicate ids. Autonomous mode writes on its own
+    background thread roughly once a minute while normal requests can
+    write or read the SAME conversation at the same time — a
+    concurrency scenario that genuinely did not exist before
+    autonomous mode did. A longer conversation makes each read/write
+    take longer, widening the collision window — exactly the "gets
+    worse as the thread grows" pattern reported.
+
+    A dedicated `.lock` file, not the `.jsonl` file itself, avoids any
+    ambiguity around flock() semantics on a file already open in
+    append mode. fcntl.flock() correctly serializes across both
+    threads AND processes on Linux (locks are per open-file-
+    description, not per-process), covering this app's actual
+    single-process/multi-thread architecture and remaining correct if
+    that ever changes.
+    """
+    conv_path = _conv_path(conv_id)
+    conv_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = conv_path.with_suffix(".lock")
+    with open(lock_path, "a+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def _now() -> str:
@@ -121,7 +160,7 @@ def touch(conv_id: str, maybe_title_from: Optional[str] = None) -> None:
         _save_index(index)
 
 
-def records(conv_id: str) -> List[Dict[str, Any]]:
+def _records_unlocked(conv_id: str) -> List[Dict[str, Any]]:
     p = _conv_path(conv_id)
     if not p.exists():
         return []
@@ -132,15 +171,31 @@ def records(conv_id: str) -> List[Dict[str, Any]]:
     return out
 
 
+def records(conv_id: str) -> List[Dict[str, Any]]:
+    with _conversation_lock(conv_id):
+        return _records_unlocked(conv_id)
+
+
 def append(conv_id: str, kind: str, **fields) -> Dict[str, Any]:
-    recs = records(conv_id)
-    rec = {"id": (recs[-1]["id"] + 1) if recs else 1,
-           "ts": _now(), "kind": kind, **fields}
-    p = _conv_path(conv_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    return rec
+    # Locked for the FULL read-modify-write, not just the write — the
+    # read (to compute the next sequential id) and the write must
+    # happen as one atomic operation, or two concurrent callers can
+    # both read the same "last id" and both write the next one,
+    # producing duplicate ids (reproduced directly: 30 concurrent
+    # unlocked appends -> 18 duplicates). Calls _records_unlocked, not
+    # records(), specifically to avoid acquiring this same lock twice
+    # from within one call — flock() is not reentrant across separate
+    # open() calls, even from the same thread, and nesting it here
+    # would deadlock.
+    with _conversation_lock(conv_id):
+        recs = _records_unlocked(conv_id)
+        rec = {"id": (recs[-1]["id"] + 1) if recs else 1,
+               "ts": _now(), "kind": kind, **fields}
+        p = _conv_path(conv_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return rec
 
 
 def supersede_from(conv_id: str, target_id: int) -> Dict[str, Any]:
