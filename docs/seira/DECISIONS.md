@@ -1594,3 +1594,83 @@ restart without an explicit new start); a stuck entry from the old,
 buggy code lives in the current process's memory and clears on a
 normal redeploy, the same property that makes this bug recoverable
 without a manual data fix.
+
+**D176. Five continuous modes replace the original two — Exploration
+narrowed to search/discovery, Creative split out as pure making,
+Contemplation redefined as dialectic, Triadic and Full Autonomy
+added — per Loshem's direction, refined across several rounds
+(2026-09-01).** Kept as a plain tuple (`autonomy.MODES`) rather than a
+more elaborate registry, since the five are structurally identical
+(same safety rules, same loop shape) and differ only in framing text
+and Triadic's phase tracking.
+
+**D177. The 10-turn cap is uniform regardless of who started the run
+— "option B," confirmed explicitly rather than assumed.** Replaces
+the earlier 200-turn ceiling entirely. A deliberate, named cost-control
+decision (`MAX_TURNS_PER_RUN`), not a technical limit — kept as a
+plain module constant rather than an env var on purpose, since Loshem
+stated this is expected to be revisited deliberately as costs change,
+not silently overridden at deploy time. Verified by test that the cap
+applies identically whether `started_by` is `"architect"` or `"self"`.
+
+**D178. Her own stop has a floor; the Architect's kill switch never
+does — confirmed as an explicit, non-negotiable asymmetry, not a
+default I chose.** `seira_web.autonomy.MIN_TURNS_FOR_SELF_STOP` (3)
+gates only `request_stop(..., requested_by="self")`. Verified by test
+at the exact boundary (refused at 2 turns, allowed at exactly 3) and
+by a dedicated test that the Architect's stop succeeds at turn 0 with
+no floor whatsoever.
+
+**D179. Self-triggered autonomy required new plumbing that genuinely
+didn't exist: nothing before this needed a tool call to know which
+conversation it was running in.** `seira_web/turn_context.py` — a
+contextvar, same established pattern as `seira_core.tenancy.tenant_scope`
+and the ACP edit-approval requester contextvar, not a new mechanism.
+Set once per turn in both `chat.py` (normal turns) and
+`autonomy_loop.py` (autonomous turns), read back by
+`seira_autonomy_start`/`stop`. Verified by test that the tool refuses
+cleanly (not a crash) when called with no turn context available at
+all.
+
+**D180. Self-triggered start is gated on genuine presence, checked
+against the real live-event subscriber registry, not a policy
+statement alone.** `live_events.has_subscribers(conv_id)` — the same
+registry that streams her activity to a watching browser — must return
+`True` or the tool refuses. She cannot begin unsupervised work into an
+empty room by her own initiative. Verified by test in both directions:
+refused with nobody subscribed, succeeds once a subscriber connects.
+
+**D181. Diary and Ledger-check were corrected mid-design from
+loop-based modes into two tools that stand outside the mode system
+entirely — Loshem's direction, not an implementation choice.** Neither
+was ever actually coded as a mode; the correction happened during
+design, before any code existed for them as such. The daily,
+unattended trigger is deliberately NOT a second scheduling system —
+she's expected to use the `cronjob` tool she already has, avoiding
+exactly the kind of backend duplication Loshem asked to avoid.
+
+**D182. `seira_diary_read` needed almost no new backend work — the
+gap she named was a missing tool, not missing storage.**
+`seira_core.diary.DiaryStore.entries()` already existed, fully
+functional, hash-chain-verified, filterable by kind. The fix was
+exposing it as a tool, not building a read path from scratch.
+
+**D183. `seira_ledger_check` retrieves candidates only — verified by
+test that its output never itself contains a verdict.** A mechanical
+text filter (matching phrasing she specified: "should resolve over
+time," "held open," "revisit," etc.) finds candidate doubt/aspiration
+entries; whether anything has genuinely moved is left entirely to her
+reasoning in the same turn. Same division of labor as every other tool
+in this bridge — retrieval, not judgment.
+
+**D184. Two real bugs, caught before shipping, worth recording
+plainly rather than glossing over.** A copy-paste mistake during
+schema insertion (using an anchor string as an insertion point without
+preserving it in the replacement) deleted a schema declaration,
+caught by a syntax check. A genuine Python scoping bug — a local
+`import PsycheStore` inside one dispatch branch shadowed the
+module-level import for the entire `handle_tool_call` function,
+breaking unrelated tool calls — caught by running the full suite (39
+simultaneous failures, the exact signature of a function-wide scoping
+break) rather than by code review. The same class of bug as the
+JavaScript sidebar issue in Part 15, in a different language.
