@@ -131,7 +131,7 @@ def test_loop_stops_at_max_turns_safety_cap(monkeypatch):
     """The automatic safety cap Loshem confirmed (2026-08-31): even
     with no manual stop, the loop must not run forever unattended."""
     from seira_web import autonomy_loop
-    monkeypatch.setattr(autonomy_loop, "MAX_TURNS", 3)
+    monkeypatch.setattr(autonomy, "MAX_TURNS_PER_RUN", 3)
     monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
     monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
 
@@ -145,7 +145,7 @@ def test_loop_stops_at_max_turns_safety_cap(monkeypatch):
 
     call_count = {"n": 0}
 
-    def fake_run_turn(conv_id, prompt, history, emit):
+    def fake_run_turn(conv_id, prompt, history, emit, **kwargs):
         call_count["n"] += 1
         return {"reply": f"turn {call_count['n']}", "messages": []}
 
@@ -161,7 +161,7 @@ def test_loop_stops_at_max_turns_safety_cap(monkeypatch):
 
 def test_loop_stops_when_stop_is_requested_between_turns(monkeypatch):
     from seira_web import autonomy_loop
-    monkeypatch.setattr(autonomy_loop, "MAX_TURNS", 1000)
+    monkeypatch.setattr(autonomy, "MAX_TURNS_PER_RUN", 1000)
     monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
     monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
 
@@ -175,7 +175,7 @@ def test_loop_stops_when_stop_is_requested_between_turns(monkeypatch):
 
     call_count = {"n": 0}
 
-    def fake_run_turn(conv_id, prompt, history, emit):
+    def fake_run_turn(conv_id, prompt, history, emit, **kwargs):
         call_count["n"] += 1
         if call_count["n"] == 2:
             autonomy.request_stop("tenant-a")  # simulate the Architect hitting Stop
@@ -251,7 +251,7 @@ def test_live_events_are_published_during_a_turn(monkeypatch):
     discarded (the first version of this loop used emit=lambda e: None)."""
     from seira_web import autonomy_loop, live_events
     monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
-    monkeypatch.setattr(autonomy_loop, "MAX_TURNS", 1)
+    monkeypatch.setattr(autonomy, "MAX_TURNS_PER_RUN", 1)
     monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
 
     fake_convs = _FakeConvs()
@@ -262,7 +262,7 @@ def test_live_events_are_published_during_a_turn(monkeypatch):
     monkeypatch.setattr("seira_core.tenancy.tenant_scope",
                         lambda *a, **kw: _NullContext())
 
-    def fake_run_turn(conv_id, prompt, history, emit):
+    def fake_run_turn(conv_id, prompt, history, emit, **kwargs):
         emit({"event": "tool", "tool": "web_search"})
         emit({"event": "reply", "text": "found something"})
         return {"reply": "found something", "messages": []}
@@ -352,7 +352,7 @@ def test_start_works_when_called_from_a_worker_thread(monkeypatch):
     from seira_web import autonomy_loop
 
     monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0.05)
-    monkeypatch.setattr(autonomy_loop, "MAX_TURNS", 1)
+    monkeypatch.setattr(autonomy, "MAX_TURNS_PER_RUN", 1)
     monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
 
     fake_convs = _FakeConvs()
@@ -365,7 +365,7 @@ def test_start_works_when_called_from_a_worker_thread(monkeypatch):
 
     call_count = {"n": 0}
 
-    def fake_run_turn(conv_id, prompt, history, emit):
+    def fake_run_turn(conv_id, prompt, history, emit, **kwargs):
         call_count["n"] += 1
         return {"reply": "did something", "messages": []}
 

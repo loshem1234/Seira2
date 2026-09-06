@@ -63,6 +63,8 @@ def test_tools_expose_no_intellect_or_unity_write(provider):
         "seira_project_create", "seira_project_list", "seira_project_recall",
         "seira_project_resume",
         "seira_project_add_reference", "seira_project_update_blurb",
+        "seira_diary_read", "seira_ledger_check",
+        "seira_autonomy_start", "seira_autonomy_stop",
         "seira_create_file", "seira_image_recall",
         "seira_image_tag", "seira_image_list", "seira_generate_image",
     ]
