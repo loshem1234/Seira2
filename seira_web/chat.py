@@ -247,9 +247,39 @@ def run_turn(
             user_message = (user_message or "").strip()
         else:
             convs.append(conv_id, "attachment", name=attachment["name"])
+            # Real, live bug (2026-09-06): she only ever received the
+            # first ~6000 characters of an uploaded document (the
+            # inline preview cap) with NOTHING telling her more
+            # existed — she reasonably believed a truncated document
+            # was the whole thing, because nothing said otherwise. The
+            # full text was already being saved to her Corpus the
+            # whole time (references.save_reference gets the untruncated
+            # text); the gap was purely that she was never told. Now
+            # she's always given the ref_id and, when truncated, an
+            # explicit instruction to recall the rest before
+            # answering if she needs it — not just a passive mention.
+            ref_id = attachment.get("ref_id", "")
+            total_length = attachment.get("total_length") or len(attachment.get("text", ""))
+            if attachment.get("truncated_for_chat") and ref_id:
+                header = (
+                    f"[Attached document: {attachment['name']} — "
+                    f"{total_length:,} characters total; only the first "
+                    f"{len(attachment['text']):,} are shown here. This is "
+                    f"NOT the whole document. Saved in full as reference "
+                    f"'{ref_id}' — call seira_reference_recall(ref='{ref_id}') "
+                    f"to read further before answering if the rest matters "
+                    f"to what's being asked.]"
+                )
+            elif ref_id:
+                header = (
+                    f"[Attached document: {attachment['name']} — "
+                    f"{total_length:,} characters, shown in full here. Also "
+                    f"saved as reference '{ref_id}' for later recall.]"
+                )
+            else:
+                header = f"[Attached document: {attachment['name']}]"
             user_message = (
-                f"[Attached document: {attachment['name']}]\n"
-                f"{attachment['text']}\n\n{user_message or ''}"
+                f"{header}\n{attachment['text']}\n\n{user_message or ''}"
             ).strip()
 
     if user_message is not None:
