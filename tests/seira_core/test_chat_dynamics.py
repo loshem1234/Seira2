@@ -162,3 +162,69 @@ def test_attachment_reaches_the_model_and_the_record(client):
     assert "vesica holds the point" in r["reply"]  # EchoLLM saw the content
     page = client.get(f"/?c={cid}").text
     assert "Received: notes.txt" in page
+
+
+# ---------------- real bug (2026-09-06): truncated documents with no notice ----------------
+
+def test_truncated_attachment_tells_her_explicitly_more_exists(client):
+    """The exact live bug: she only ever received the first ~6000
+    characters of an uploaded PDF, with nothing telling her more
+    existed — she reasonably believed a truncated document was the
+    whole thing. Checks the actual stored record (what really gets
+    sent to the model) directly, not the test double's own
+    intentionally-truncated echo."""
+    cid = _conv_id(client)
+    client.post("/api/chat", json={
+        "action": "send", "conv_id": cid, "message": "summarize this",
+        "attachment": {
+            "name": "report.pdf", "text": "only the first part is here",
+            "ref_id": "ref-abc123", "total_length": 87_432,
+            "truncated_for_chat": True,
+        },
+    })
+    from seira_core.tenancy import tenant_scope
+    from seira_web import accounts as acct
+    from seira_web import conversations as convs
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        recs = [r for r in convs.records(cid) if r["kind"] == "user"]
+    stored_text = recs[-1]["text"]
+    assert "ref-abc123" in stored_text  # she was given the actual ref_id
+    assert "87,432" in stored_text  # the true total length, not just what's shown
+    assert "NOT the whole document" in stored_text  # unambiguous, not a soft hint
+    assert "seira_reference_recall" in stored_text  # told exactly how to get the rest
+
+
+def test_untruncated_attachment_still_mentions_the_reference(client):
+    """A short document that fit entirely inline should still tell her
+    it's saved for later recall — not just truncated ones."""
+    cid = _conv_id(client)
+    client.post("/api/chat", json={
+        "action": "send", "conv_id": cid, "message": "what's in this",
+        "attachment": {
+            "name": "short.txt", "text": "the whole short document",
+            "ref_id": "ref-xyz789", "total_length": 25,
+            "truncated_for_chat": False,
+        },
+    })
+    from seira_core.tenancy import tenant_scope
+    from seira_web import accounts as acct
+    from seira_web import conversations as convs
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        recs = [r for r in convs.records(cid) if r["kind"] == "user"]
+    stored_text = recs[-1]["text"]
+    assert "ref-xyz789" in stored_text
+    assert "shown in full" in stored_text
+    assert "NOT the whole document" not in stored_text  # honest either way
+
+
+def test_attachment_without_ref_id_does_not_crash(client):
+    """Defensive: an older cached frontend or malformed request without
+    ref_id/total_length must degrade gracefully, never crash the turn."""
+    cid = _conv_id(client)
+    r = client.post("/api/chat", json={
+        "action": "send", "conv_id": cid, "message": "hello",
+        "attachment": {"name": "plain.txt", "text": "just some text"},
+    })
+    assert r.status_code == 200
