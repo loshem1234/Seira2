@@ -1697,3 +1697,37 @@ open," matching what it was designed to mean, not an accidental proxy
 for "a mode is already running." Verified by actually executing the
 page's JavaScript in a simulated browser and confirming a live
 connection exists with zero autonomous modes active.
+
+**D187. The JSON-corruption and whitespace-text-block errors, reported
+twice, were root-caused to an unprotected read-modify-write in
+`conversations.append()` and fixed with real file locking — not
+patched around, not left as an open question.** The "gets worse as the
+conversation grows longer" detail from the second report was the key
+diagnostic clue: it pointed at a race condition whose window widens
+with I/O size, not a one-off content issue. Confirmed by direct
+reproduction against the real module (30 concurrent unlocked appends
+→ 18 duplicate ids) before writing any fix, and reconfirmed against
+the fixed code (same test, zero duplicates) after.
+
+**D188. `fcntl.flock` on a dedicated `.lock` file, not the conversation
+file itself.** Locking the actual `.jsonl` file while it's also open
+in append mode introduces ambiguity about flock semantics across
+separate `open()` calls; a dedicated lock file sidesteps that
+entirely — a well-established, low-risk pattern rather than something
+novel.
+
+**D189. A real deadlock risk was caught and designed around before
+shipping, not discovered after.** `append()` internally needs the same
+data `records()` returns, but calling the public, self-locking
+`records()` from inside an already-locked `append()` would deadlock —
+`fcntl.flock` is not reentrant across separate file descriptors, even
+from the same thread. Fixed with an internal `_records_unlocked()`
+helper that neither public function calls while already holding the
+lock.
+
+**D190. Verified with genuine concurrency, not synthetic unit
+assertions alone.** Three real-thread tests: id uniqueness under 30
+concurrent appends, byte-level integrity under 20 concurrent 20KB
+appends (large enough to actually risk write-interleaving, unlike tiny
+test strings), and read integrity under real concurrent readers
+racing a real writer.

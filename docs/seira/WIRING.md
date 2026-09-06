@@ -1053,3 +1053,56 @@ what it was always supposed to mean, not "a mode happens to already be
 running." Verified by actually executing the page's JavaScript against
 a simulated browser and confirming the connection is established with
 zero modes active, the exact scenario that was broken.
+
+---
+
+## Part 21 — The actual root cause of the JSON/whitespace errors, found and fixed
+
+Reported twice (once earlier, once again 2026-09-06) with a decisive
+new clue the second time: the errors grew *more frequent as a
+conversation grew longer*. That detail pointed at something whose
+probability scales with I/O size — exactly the signature of a race
+condition, not a one-off fluke.
+
+**The real mechanism, found by reading the actual code, not
+guessing.** `conversations.append()` never just wrote a new message —
+it first read the *entire* conversation file to compute the next
+sequential id, then wrote separately, as two distinct steps with
+nothing holding them together. Before autonomous mode existed, only
+one request at a time was ever writing to a given conversation, so
+this never mattered. Autonomous mode changed that for real: its
+background thread writes to the conversation roughly once a minute,
+independent of and concurrent with anything a normal request might
+also be doing to the same file at the same moment — a genuinely new
+concurrency scenario.
+
+**Reproduced directly, not assumed.** Thirty concurrent unlocked
+appends against the real `conversations.py` module produced eighteen
+duplicate ids. That's not a theoretical race — it's a confirmed one,
+on the very code that shipped. A longer conversation means each read
+and write simply takes longer, which widens the window two operations
+have to actually collide — precisely the "gets worse as the thread
+grows" pattern both of you reported.
+
+**The fix: a real exclusive lock spanning the whole operation,** not a
+patch around the edges. A dedicated `.lock` file (not the conversation
+file itself, avoiding any ambiguity around flock semantics on a file
+already open in append mode) is acquired via `fcntl.flock` for the
+*entire* read-then-write in `append()`, and for any standalone read via
+`records()`. `fcntl.flock` correctly serializes across both threads
+and processes on Linux — it protects this app's actual current
+architecture (one process, many threads) and stays correct if that
+ever changes. Care was taken to avoid a real deadlock risk: `append()`
+calls an internal, unlocked helper rather than the public `records()`
+function, since acquiring the same flock twice from within one
+operation — even from the same thread — does not succeed the way a
+reentrant lock would; it blocks forever.
+
+**Verified with the same rigor as the original diagnosis, not just
+"tests pass."** The exact 30-concurrent-append reproduction was re-run
+against the *fixed* code: zero duplicates, perfectly sequential ids.
+A second test uses 20KB payloads specifically, to exercise the
+byte-level write-interleaving risk that only shows up with real-sized
+content, not tiny test strings. A third runs genuine concurrent reads
+against an in-flight writer and confirms no read ever sees a
+corrupted file.
