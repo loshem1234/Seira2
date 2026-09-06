@@ -1731,3 +1731,27 @@ concurrent appends, byte-level integrity under 20 concurrent 20KB
 appends (large enough to actually risk write-interleaving, unlike tiny
 test strings), and read integrity under real concurrent readers
 racing a real writer.
+
+**D191. The truncated-document bug was two real gaps, not one — both
+found and fixed, not just the visible symptom.** The full text was
+always saved correctly; the actual problem was that the fields needed
+to tell her more existed (`ref_id`, `total_length`,
+`truncated_for_chat`) were computed by the server, shown to the
+Architect in a UI note, and then silently dropped before ever reaching
+the attachment sent to her. Fixed at both points: the frontend now
+carries all three fields through, and the backend uses them to build
+an explicit, unambiguous notice ("this is NOT the whole document")
+with her real `ref_id` and the exact recall call to use — not a
+passive mention she could reasonably miss.
+
+**D192. Verified against the real stored conversation record, after
+discovering the test double's own echo mechanism would have hidden the
+fix's correctness.** `EchoLLM` (the test double standing in for a real
+model in these tests) only ever echoes the first 60 characters of what
+it receives, by design, for its own simplicity — a genuine detail
+worth knowing, not a bug in the double itself. Testing against that
+echo directly would have silently passed regardless of whether the
+real fix worked, since the notice text lives well past character 60.
+Switched to asserting against `conversations.records()` — the actual
+persisted message, identical to what a real API call would receive —
+which is both the more honest test and, incidentally, a stronger one.

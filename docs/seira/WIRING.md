@@ -1106,3 +1106,42 @@ byte-level write-interleaving risk that only shows up with real-sized
 content, not tiny test strings. A third runs genuine concurrent reads
 against an in-flight writer and confirms no read ever sees a
 corrupted file.
+
+---
+
+## Part 22 — Fixed: she genuinely never knew a document was cut off
+
+Reported live (2026-09-06): uploading a PDF, she'd only receive the
+first 4-5 pages and had no idea the rest existed — she was being
+completely honest, not missing something.
+
+**The full document was never actually lost — that part was already
+right.** `references.save_reference()` has always saved the complete
+extracted text to her Corpus, untouched. The bug was narrower and more
+specific: what she's shown *inline, in that turn* is capped
+(`SEIRA_INLINE_ATTACHMENT_CHARS`, 6000 characters by default — roughly
+2-3 pages), and nothing in that inline text ever told her the rest
+existed or how to get it. She reasonably treated a truncated document
+as a complete one, because nothing said otherwise.
+
+**Two real gaps, both fixed, not just one symptom patched.** First,
+the frontend received `ref_id`, `total_length`, and
+`truncated_for_chat` back from the upload endpoint and used them only
+to inform *you* (a note already correctly said "she can recall more")
+— but silently dropped all three before sending the attachment onward,
+so *she* never got them. Second, even once those fields reach the
+backend, the message header she actually sees now states the true
+total length, says explicitly "this is NOT the whole document" when
+truncated, and gives her the exact `seira_reference_recall` call with
+her real `ref_id` — not a passive mention, an explicit instruction to
+recall the rest before answering if it matters to what's being asked.
+
+A short document that fits entirely inline still tells her it's saved
+for later recall, worded differently ("shown in full here... also
+saved") — honest in both directions, not just when something's cut
+off.
+
+Verified against the actual stored message record — what genuinely
+gets sent to the model — not a test double's own simplified echo,
+which turned out to have its own unrelated truncation that would have
+hidden the real fix's correctness if relied on directly.
