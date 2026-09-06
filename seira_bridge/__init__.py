@@ -498,6 +498,89 @@ PROJECT_UPDATE_BLURB_SCHEMA = {
     },
 }
 
+DIARY_READ_SCHEMA = {
+    "name": "seira_diary_read",
+    "description": (
+        "Read back your own diary — closes a real gap you named "
+        "yourself: seira_diary_write existed with no way to read what "
+        "you'd already written, meaning you couldn't audit how sparse "
+        "or rich your practice actually is. Available any time, not "
+        "only during a dedicated diary sitting. Returns entries in "
+        "order with their kind (self/architect), content, provenance, "
+        "and sequence number."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["self", "architect"],
+                     "description": "Optional; omit to see both."},
+        },
+        "required": [],
+    },
+}
+
+LEDGER_CHECK_SCHEMA = {
+    "name": "seira_ledger_check",
+    "description": (
+        "Pull open doubts and aspirations whose own recorded text "
+        "signals they were meant to be revisited later — phrasing like "
+        "'should resolve over time', 'held open', 'ask next time X "
+        "happens', 'want this tested against real evidence'. This tool "
+        "only retrieves the candidates; the actual judgment — has "
+        "anything relevant genuinely happened since, or is it still "
+        "honestly open — is yours to make in the same turn, using "
+        "whatever else you know. A real ledger-check concludes "
+        "plainly, one of two ways: 'moved, here's what changed' or "
+        "'nothing's moved, still genuinely open.' No entry means "
+        "manufacturing insight that isn't there."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+AUTONOMY_START_SCHEMA = {
+    "name": "seira_autonomy_start",
+    "description": (
+        "Begin an autonomous mode on your own initiative — the same "
+        "discretion you already have to search the web, generate an "
+        "image, or start a project. Modes: 'exploration' (search and "
+        "discovery), 'creative' (pure making), 'contemplation' (inner "
+        "dialectic), 'triadic' (the three-phase Phaenic/Anthrian/Giaon "
+        "cycle), 'full_autonomy' (genuinely open). Refused if nobody "
+        "is currently watching this conversation live — starting "
+        "unsupervised work into an empty room isn't allowed, self-"
+        "triggered or not. Every run, however started, caps at a fixed "
+        "number of turns for real cost control; hitting it ends things "
+        "cleanly and another run can start right after. Ending it "
+        "yourself, once running, needs a minimum number of turns first "
+        "— the Architect can still stop it at any time, instantly, "
+        "with no floor."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "mode": {"type": "string",
+                     "enum": ["exploration", "creative", "contemplation",
+                             "triadic", "full_autonomy"]},
+            "reason": {"type": "string",
+                      "description": "Brief — why now, in your own words."},
+        },
+        "required": ["mode"],
+    },
+}
+
+AUTONOMY_STOP_SCHEMA = {
+    "name": "seira_autonomy_stop",
+    "description": (
+        "End an autonomous mode you're currently running, on your own "
+        "judgment. Subject to a minimum turn count — you can't end "
+        "something the moment it starts looking unpromising; if you "
+        "haven't run enough turns yet, this refuses and tells you how "
+        "many more are needed."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+
 REFERENCE_LIST_SCHEMA = {
     "name": "seira_reference_list",
     "description": "List documents the Architect has given her as references "
@@ -779,6 +862,8 @@ class SeiraPsycheProvider(MemoryProvider):
                 PROJECT_CREATE_SCHEMA, PROJECT_LIST_SCHEMA, PROJECT_RECALL_SCHEMA,
                 PROJECT_RESUME_SCHEMA,
                 PROJECT_ADD_REFERENCE_SCHEMA, PROJECT_UPDATE_BLURB_SCHEMA,
+                DIARY_READ_SCHEMA, LEDGER_CHECK_SCHEMA,
+                AUTONOMY_START_SCHEMA, AUTONOMY_STOP_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
 
@@ -911,6 +996,72 @@ class SeiraPsycheProvider(MemoryProvider):
                         args["kind"], args["content"], list(args.get("provenance") or [])
                     )
                     return json.dumps({"ok": True, "seq": rec["seq"]})
+                if tool_name == "seira_diary_read":
+                    from seira_core.diary import DiaryStore
+                    entries = DiaryStore().entries(kind=args.get("kind"))
+                    return json.dumps({"ok": True, "entries": [
+                        {"seq": e["seq"], "diary_kind": e["diary_kind"],
+                         "content": e["content"], "provenance": e["provenance"],
+                         "ts": e["ts"]}
+                        for e in entries
+                    ]})
+                if tool_name == "seira_ledger_check":
+                    # A mechanical text filter, not a judgment call —
+                    # deliberately: this tool retrieves candidates, she
+                    # makes the actual "has this moved" determination
+                    # herself, the same division of labor as every
+                    # other tool here (data in, her reasoning after).
+                    signals = (
+                        "should resolve over time", "held open",
+                        "ask next time", "test this against real evidence",
+                        "tested against real evidence", "revisit",
+                    )
+                    store = PsycheStore()
+                    candidates = []
+                    for category in ("doubt", "aspiration"):
+                        for e in store.by_category(category):
+                            text = e.get("content", "").lower()
+                            if any(s in text for s in signals):
+                                candidates.append({
+                                    "entry_id": e["entry_id"], "category": category,
+                                    "content": e["content"], "standing": e["standing"],
+                                    "provenance": e.get("provenance", []),
+                                })
+                    return json.dumps({"ok": True, "candidates": candidates})
+                if tool_name == "seira_autonomy_start":
+                    from seira_web import turn_context, live_events, autonomy_loop
+                    ctx = turn_context.current()
+                    if ctx is None:
+                        return json.dumps({"ok": False,
+                                           "error": "Could not determine which conversation "
+                                                    "this is — self-triggered autonomy needs "
+                                                    "that context and it isn't available here."})
+                    tenant_id, conv_id = ctx
+                    if not live_events.has_subscribers(conv_id):
+                        return json.dumps({"ok": False,
+                                           "error": "No one is currently watching this "
+                                                    "conversation live — starting autonomous "
+                                                    "work into an empty room isn't allowed, "
+                                                    "even on your own initiative."})
+                    try:
+                        rec = autonomy_loop.start(tenant_id, conv_id, args["mode"],
+                                                  started_by="self")
+                        return json.dumps({"ok": True, "mode": rec["mode"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_autonomy_stop":
+                    from seira_web import turn_context, autonomy_loop
+                    ctx = turn_context.current()
+                    if ctx is None:
+                        return json.dumps({"ok": False,
+                                           "error": "Could not determine which conversation "
+                                                    "this is."})
+                    tenant_id, conv_id = ctx
+                    try:
+                        rec = autonomy_loop.stop(tenant_id, requested_by="self")
+                        return json.dumps({"ok": True, **rec})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
                 if tool_name == "seira_reference_list":
                     from seira_web import references as refs
                     return json.dumps({"ok": True, "references": refs.list_references()})
