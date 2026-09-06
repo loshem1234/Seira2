@@ -690,7 +690,7 @@ def create_app(llm_client_factory=None) -> FastAPI:
     @app.post("/api/autonomy/start")
     def autonomy_start(request: Request, account: dict = Depends(require_account),
                        body: dict = Body(...)):
-        from seira_web import autonomy_loop
+        from seira_web import autonomy, autonomy_loop
         if os.environ.get("SEIRA_SANCTUM_RUNTIME", "direct") != "hermes":
             raise HTTPException(status_code=400,
                                 detail="Autonomous mode needs her full capability "
@@ -700,11 +700,19 @@ def create_app(llm_client_factory=None) -> FastAPI:
         conv_id = body.get("conv_id")
         if not conv_id:
             raise HTTPException(status_code=400, detail="conv_id is required.")
-        if mode not in ("exploration", "contemplation"):
-            raise HTTPException(status_code=400, detail="mode must be "
-                                "'exploration' or 'contemplation'.")
+        # Was hardcoded to the original two-mode list and never updated
+        # when the mode roster grew to five — real, live bug (2026-09-05):
+        # the UI's own dropdown already offered all five, but this check
+        # silently still only accepted the first two, rejecting Triadic,
+        # Creative, and Full Autonomy with a stale error message. Reading
+        # the real list here instead of a second, separately-maintained
+        # copy of it is the actual fix, not just adding the missing names.
+        if mode not in autonomy.MODES:
+            raise HTTPException(status_code=400,
+                                detail=f"mode must be one of {autonomy.MODES}.")
         try:
-            rec = autonomy_loop.start(account["tenant_id"], conv_id, mode)
+            rec = autonomy_loop.start(account["tenant_id"], conv_id, mode,
+                                      started_by="architect")
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
         return JSONResponse(rec)
@@ -712,7 +720,8 @@ def create_app(llm_client_factory=None) -> FastAPI:
     @app.post("/api/autonomy/stop")
     def autonomy_stop(account: dict = Depends(require_account)):
         from seira_web import autonomy_loop
-        return JSONResponse(autonomy_loop.stop(account["tenant_id"]))
+        return JSONResponse(autonomy_loop.stop(account["tenant_id"],
+                                               requested_by="architect"))
 
     @app.get("/api/autonomy/status")
     def autonomy_status(account: dict = Depends(require_account)):
