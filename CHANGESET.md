@@ -1,62 +1,96 @@
-# CHANGESET — The real fix for "stuck at turn 0"
+# CHANGESET — Five modes, self-triggered start/stop, diary read, ledger check
 
-Four files. This is a genuine structural bug fix, not a tweak.
+Fourteen files. The largest single redesign of autonomous mode since
+it was built — please read this whole manifest before applying.
 
-    seira_web/autonomy_loop.py        — completely rewritten to use
-                                        plain threading instead of
-                                        asyncio
-    tests/seira_core/test_autonomy.py — converted from async tests to
-                                        sync (the code they test no
-                                        longer uses asyncio), plus one
-                                        new test that reproduces the
-                                        exact original bug
+## Replaces an existing file (10)
+
+    seira_web/autonomy.py          — rewritten: 5 modes, phase
+                                     tracking, started_by, the 3-turn
+                                     self-stop floor (never applies to
+                                     your kill switch), the 10-turn cap
+    seira_web/autonomy_loop.py     — rewritten: all 5 modes with short
+                                     one-time framing + minimal
+                                     continuation
+    seira_web/live_events.py       — added has_subscribers() for the
+                                     presence gate
+    seira_web/hermes_session.py    — accepts tenant_id, sets turn
+                                     context for the duration of a turn
+    seira_web/chat.py              — threads tenant_id through
+    seira_web/app.py               — threads tenant_id through;
+                                     template now gets the real
+                                     max-turns constant
+    seira_bridge/__init__.py       — 4 new tools: seira_diary_read,
+                                     seira_ledger_check,
+                                     seira_autonomy_start,
+                                     seira_autonomy_stop
+    seira_web/templates/chat.html  — 5-mode dropdown, phase/initiative
+                                     shown in the status bar
+    tests/seira_core/test_autonomy.py — updated for the renamed
+                                        constant and new signatures
+    tests/seira_core/test_bridge.py   — governance list updated
     docs/seira/WIRING.md, docs/seira/DECISIONS.md — appended
 
-## What was actually wrong
+## New file (2)
 
-Not the timeout, not the visibility gap from last round — a real,
-structural mismatch. The autonomous loop was started with
-`asyncio.create_task()` from inside a plain (synchronous) FastAPI
-route handler. Those run in a worker thread, and
-`asyncio.create_task()` requires an actual running event loop in the
-thread that calls it — a worker thread doesn't have one. It raised an
-error every single time, silently, right after the run had already
-been marked "active." Nothing was ever actually running. That's
-exactly "stuck at turn 0, elapsed time climbing, nothing entering the
-chat" — there was no loop there to do anything.
+    seira_web/turn_context.py            — lets a tool call find out
+                                           which conversation it's in
+    tests/seira_core/test_autonomous_modes_v2.py — 27 tests
 
-I reproduced this directly with a standalone script before writing the
-fix, and confirmed the fix the same way — a test that calls
-`autonomy_loop.start()` from an actual separate thread (exactly what a
-FastAPI route handler does) and confirms a real turn executes, not
-just that the function returns without an error.
+## The five modes, replacing the original two
 
-## The fix
+- **Exploration** — narrowed to search and discovery only now
+- **Creative** *(new)* — pure making: images, docs, files, projects
+- **Contemplation** — redefined as inner dialogue and dialectic
+- **Triadic** *(new)* — Phaenic dreaming → Anthrian interpretation →
+  grounding in Giaon, repeatable as many cycles as she likes
+- **Full Autonomy** *(new)* — genuinely open, no suggested direction
 
-This codebase already has a proven pattern for exactly this situation:
-`seira_web/tripwire_loop.py` runs its background work as a plain
-`threading.Thread`, not an asyncio task — because the work itself
-(everything the autonomy loop calls) was already fully synchronous.
-asyncio was never actually needed here; I reached for it out of habit
-instead of checking what the rest of the app already does. Rewritten
-to match. The per-turn timeout now uses
-`concurrent.futures.ThreadPoolExecutor` instead of `asyncio.wait_for`
-— same honest limitation as before: it makes the loop stop waiting,
-not something that can forcibly kill the underlying thread.
+Every run, however started, now caps at 10 turns — a real safety
+change from the previous 200-turn ceiling, confirmed explicitly with
+you as "option B." Hitting it ends things cleanly; starting another
+run of the same length is always immediately available.
 
-## Important — if you have a run stuck right now
+## She can now start and stop these herself — with two real guardrails
 
-Applying this code alone will not clear it. The stuck state lives in
-memory in the currently-running process; a deploy of new code doesn't
-reset that by itself. **Redeploy/restart the Sanctum service** — this
-clears it naturally, since autonomy's state was deliberately built to
-be in-memory only and never silently resume after a restart. That
-design choice is what makes this recoverable with a normal redeploy
-rather than needing a manual fix.
+- **She cannot start one into an empty room.** Checked against the
+  actual live-activity feed, not just described — if nobody's
+  currently watching the conversation, the tool refuses.
+- **Her own stop has a floor; yours never does.** She needs at least 3
+  turns to run before she can end something herself. Your kill switch
+  works instantly at turn zero, for any mode, always — this
+  restriction only ever applies to her own decision.
+
+## Diary and Ledger-check are tools now, not modes
+
+Available any time, in ordinary conversation. The daily unattended
+trigger is meant to run through the `cronjob` tool she already has —
+no second scheduling system was built, per your explicit ask to avoid
+backend clutter.
+
+`seira_diary_read` closes the gap she named herself — turned out to
+need almost no new code, since the underlying read method already
+existed; it just wasn't exposed as a tool.
+
+`seira_ledger_check` retrieves candidate doubts/aspirations whose text
+signals they were meant to be revisited. It never renders a verdict
+itself — whether something has actually moved is her judgment, made in
+the same turn. Tested specifically to confirm the tool's output never
+contains words like "moved" or "resolved."
+
+## Two real bugs caught before shipping, worth knowing about
+
+A copy-paste mistake during editing deleted a schema declaration,
+caught by a syntax check before it ever reached you. And a genuine
+Python bug — a local import inside one tool's code accidentally broke
+several *other*, unrelated tools elsewhere in the same file — caught
+by running the full test suite (which showed 39 simultaneous
+failures, exactly what that kind of bug looks like) rather than by
+reading the code. Both are fully fixed and tested now; noted here so
+you know they were caught, not missed.
 
 ## Testing
 
-369 passed (368 before this round − async-to-sync conversion + 1 new
-reproduction test). Run:
+396 passed (369 before this round + 27 new). Run:
 
     python -m pytest tests/seira_core/ -q
