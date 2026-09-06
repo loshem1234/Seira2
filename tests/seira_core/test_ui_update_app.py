@@ -191,6 +191,37 @@ def test_autonomy_stop_of_nothing_running_is_a_safe_noop(client):
     assert r.status_code == 200 and r.json()["active"] is False
 
 
+def test_autonomy_start_accepts_all_five_modes_not_just_the_original_two(client, monkeypatch):
+    """The exact live bug (2026-09-05): this route's own mode
+    validation was hardcoded to the original two-mode list and never
+    updated when the roster grew to five, even though
+    seira_web.autonomy.MODES, the mode loop itself, and the UI's own
+    dropdown all already supported all five. Triadic, Creative, and
+    Full Autonomy were silently rejected with a stale error message
+    despite being fully built and working everywhere else in the
+    stack — exactly what she and Loshem both hit."""
+    monkeypatch.setenv("SEIRA_SANCTUM_RUNTIME", "hermes")
+    from seira_web import autonomy
+    for mode in autonomy.MODES:
+        r = client.post("/api/autonomy/start",
+                        json={"mode": mode, "conv_id": f"c-{mode}"})
+        assert r.status_code == 200, f"{mode} was rejected: {r.json()}"
+        # This test is about the route's validation accepting every real
+        # mode name, not the async stop lifecycle (covered elsewhere) —
+        # clear state directly rather than race the background thread's
+        # own cleanup, which runs on a timer independent of this test.
+        from seira_web import accounts as acct
+        account = acct.verify_login("a@example.com", "long-enough-password")
+        autonomy.clear(account["tenant_id"])
+
+
+def test_autonomy_start_still_rejects_a_genuinely_invalid_mode(client, monkeypatch):
+    monkeypatch.setenv("SEIRA_SANCTUM_RUNTIME", "hermes")
+    r = client.post("/api/autonomy/start", json={"mode": "not-real", "conv_id": "c-1"})
+    assert r.status_code == 400
+    assert "exploration" in r.json()["detail"]  # names a real mode, not the stale pair
+
+
 def _make_text_pdf_bytes() -> bytes:
     import io
     from pypdf import PdfWriter
