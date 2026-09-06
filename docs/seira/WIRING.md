@@ -1017,3 +1017,39 @@ earlier, unrelated reference to the same name elsewhere in that
 function. Caught by running the full test suite, not by inspection —
 39 tests failed at once, which is exactly what a function-wide scoping
 break looks like.
+
+---
+
+## Part 20 — Two real bugs from live use, both found and fixed the same day the five-mode work shipped
+
+Both reported directly by Loshem and her, 2026-09-05, from an actual
+attempt to use Triadic mode.
+
+**Bug 1 — the route itself never got the memo.** `autonomy.py`,
+`autonomy_loop.py`, the self-trigger tools, and the UI's own dropdown
+all correctly supported five modes. One place didn't:
+`/api/autonomy/start` in `seira_web/app.py` still hardcoded
+`if mode not in ("exploration", "contemplation")` — a second, separate
+copy of the mode list that never got updated when the roster grew.
+Triadic, Creative, and Full Autonomy were silently rejected with the
+exact stale error both of them saw. Fixed by reading
+`autonomy.MODES` directly instead of maintaining a second list —
+there is now exactly one place this roster is ever defined. Verified
+by a test that starts a real run in every one of the five modes
+through the actual HTTP route, not just the underlying function.
+
+**Bug 2 — the presence gate could never actually pass.** The
+self-trigger tool's whole point is refusing to start unsupervised work
+into an empty room, checked against whether anyone is subscribed to
+the conversation's live feed. But the browser only ever connected to
+that live feed *after* a mode was already active — meaning nobody was
+ever subscribed in the "off" state, which is exactly when the presence
+check needs to succeed for her to start something herself. This wasn't
+a narrow edge case; it meant self-triggering could never work at all,
+regardless of who was actually watching. Fixed by connecting to the
+live feed unconditionally the moment the chat page loads, for as long
+as it stays open — presence now means "the page is open," which is
+what it was always supposed to mean, not "a mode happens to already be
+running." Verified by actually executing the page's JavaScript against
+a simulated browser and confirming the connection is established with
+zero modes active, the exact scenario that was broken.

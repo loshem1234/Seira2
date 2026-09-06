@@ -1674,3 +1674,26 @@ breaking unrelated tool calls — caught by running the full suite (39
 simultaneous failures, the exact signature of a function-wide scoping
 break) rather than by code review. The same class of bug as the
 JavaScript sidebar issue in Part 15, in a different language.
+
+**D185. The five-mode rewrite touched five files and missed a sixth —
+`/api/autonomy/start`'s own hardcoded mode validation — because that
+list was never consolidated to a single source of truth until this
+fix.** `autonomy.MODES` now is that single source; the route reads it
+directly rather than maintaining its own separate, easily-stale copy.
+Reported live by both Loshem and her from an actual attempt to start
+Triadic mode; reproduced exactly (the same verbatim error message) and
+fixed the same session. Verified by a test that starts a real run in
+every mode through the actual HTTP route.
+
+**D186. The self-trigger presence gate had a structural bug that made
+it impossible to ever pass, not just unreliable in some cases.**
+`connectAutonomyLiveFeed()` was only ever called from inside
+`renderAutonomyStatus()` when a mode was already active — meaning no
+browser was ever subscribed to a conversation's live feed in the "off"
+state, which is exactly the state a self-triggered start needs to
+check presence in. Fixed by connecting once, unconditionally, when the
+chat page loads — presence now genuinely means "someone has this page
+open," matching what it was designed to mean, not an accidental proxy
+for "a mode is already running." Verified by actually executing the
+page's JavaScript in a simulated browser and confirming a live
+connection exists with zero autonomous modes active.
