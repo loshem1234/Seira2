@@ -689,22 +689,12 @@ function connectAutonomyLiveFeed() {
   };
 }
 
-function disconnectAutonomyLiveFeed() {
-  if (autonomyLiveSource) { autonomyLiveSource.close(); autonomyLiveSource = null; }
-}
-
 function renderAutonomyStatus(s) {
   if (!s.active) {
     autonomybar.hidden = true;
-    disconnectAutonomyLiveFeed();
     return;
   }
   autonomybar.hidden = false;
-  connectAutonomyLiveFeed();  // her activity now renders live in the
-                              // message area itself, the same as a
-                              // normal turn — this bar is the status
-                              // and the kill switch, not the only
-                              // place you can see what she's doing.
   const MODE_NAMES = {exploration: 'Exploration', creative: 'Creative',
     contemplation: 'Contemplation', triadic: 'Triadic', full_autonomy: 'Full Autonomy'};
   const TRIADIC_PHASES = ['Phaenic dreaming', 'Anthrian interpretation', 'grounding in Giaon'];
@@ -749,6 +739,16 @@ autonomystop.addEventListener('click', async () => {
   } finally { autonomystop.disabled = false; }
 });
 
+// Real bug, live (2026-09-05): this used to only connect once
+// autonomy was already active, which meant self-triggered start could
+// never detect anyone watching — nothing was ever subscribed in the
+// "off" state to detect in the first place. Presence has to mean "the
+// page is open," not "a mode happens to already be running." Connects
+// once, unconditionally, for as long as this page is open; the
+// browser's EventSource retries on its own if the connection drops,
+// and the server-side subscription is cleaned up automatically when
+// the tab closes or navigates away.
+connectAutonomyLiveFeed();
 pollAutonomyStatus();
 setInterval(pollAutonomyStatus, 15000);
 
