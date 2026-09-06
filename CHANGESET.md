@@ -1,47 +1,57 @@
-# CHANGESET — Two real bugs from your live test, both fixed
+# CHANGESET — The actual root cause of the JSON/whitespace errors
 
-Five files. Both bugs were reported directly by you and her from an
-actual attempt to use Triadic mode — reproduced exactly and fixed.
+Four files. This is the real fix for something reported twice tonight
+— not another patch on top of the symptom.
 
-    seira_web/app.py               — Bug 1 fix: reads the real mode
-                                     list instead of a stale hardcoded
-                                     copy
-    seira_web/templates/chat.html  — Bug 2 fix: the live feed now
-                                     connects the moment the page
-                                     loads, not only once a mode is
-                                     already running
-    tests/seira_core/test_ui_update_app.py — new tests reproducing
-                                             both bugs and proving the
-                                             fixes
+    seira_web/conversations.py            — THE FIX
+    tests/seira_core/test_conversation_locking.py — new file, 6 tests
+                                                     using real
+                                                     concurrent threads
     docs/seira/WIRING.md, docs/seira/DECISIONS.md — appended
 
-## Bug 1 — "mode must be 'exploration' or 'contemplation'"
+## What was actually wrong
 
-Exactly the error you saw. The route that actually starts a mode had
-its own separate, hardcoded copy of the mode list, and it never got
-updated when the roster grew to five. Every other part of the system
-— the loop, the state tracking, the dropdown you saw with all five
-options — was correct. This one list wasn't. Fixed by having the route
-read the real list directly, so there's now exactly one place this
-roster is ever defined — it can't drift out of sync again the same
-way.
+`conversations.append()` — the function every single message write
+goes through — never wrote atomically. It read the whole conversation
+file first (to figure out the next message number), then wrote
+separately, as two disconnected steps. That was harmless when only one
+request at a time was ever touching a conversation. Autonomous mode
+changed that: its background thread writes to the conversation on its
+own schedule, independent of and at the same time as anything a normal
+message might also be doing — a real concurrency scenario that simply
+didn't exist before autonomous mode did.
 
-## Bug 2 — "nobody is watching," when you clearly were
+The detail that cracked this open was yours: "as the thread grows,
+these become more frequent." That's the exact signature of a race
+condition — a bigger file takes longer to read and write, which widens
+the window for two things to collide.
 
-This one was more fundamental: the presence check could never
-succeed, for anyone, ever, before this fix — not a flaky edge case.
-The browser only connected to the live-activity feed *after* a mode
-was already running, which means nobody was ever actually subscribed
-in the moment a self-triggered start needed to check for a watcher.
-Fixed by connecting to that feed the instant the page loads, and
-keeping it connected for as long as the page stays open — presence now
-means what it was always supposed to mean.
+## How I know this is actually fixed, not just plausible
+
+I reproduced the exact bug directly against the real code before
+touching anything — 30 concurrent writes with no locking produced 18
+duplicate message ids. Then I fixed it and ran the *same* test again:
+zero duplicates, every id in perfect order. I also tested with 20KB
+messages specifically (large enough to actually risk the kind of
+byte-level corruption that produces "expected value at line 1 column
+N"), and tested real concurrent reads happening while a write was in
+progress, to make sure a read can never see a half-written file
+either.
+
+## The fix itself
+
+A real lock — not a workaround, not a retry, an actual exclusive lock
+— now covers the entire read-then-write as one atomic operation,
+whether it's her writing, you writing, or the autonomous loop writing
+in the background. One care point worth knowing: I had to route around
+a real deadlock risk (the write function needs the same data a
+separate read function returns, but calling that read function while
+already holding the lock would have deadlocked) — handled with an
+internal, lock-free helper that only the already-locked code path
+uses.
 
 ## Testing
 
-398 passed (396 before this round + 2 new). One of the new tests
-starts a real run in all five modes through the actual API route, not
-just the underlying Python function, to make sure this exact class of
-bug can't hide again.
+404 passed (398 before this round + 6 new). Run:
 
     python -m pytest tests/seira_core/ -q
