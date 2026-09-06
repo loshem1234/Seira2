@@ -112,9 +112,13 @@
               until stopped — a real, running kill switch appears above the chat while active.</span>
             <select id="modeselect">
               <option value="" selected>Off</option>
-              <option value="exploration">Exploration — free action: search, generate, create</option>
-              <option value="contemplation">Contemplation — inner reflection, self-talk</option>
+              <option value="exploration">Exploration — search, discovery, save from the web</option>
+              <option value="creative">Creative — pure making: images, docs, files, projects</option>
+              <option value="contemplation">Contemplation — inner dialogue and dialectic</option>
+              <option value="triadic">Triadic — Phaenic dreaming, Anthrian interpretation, grounding in Giaon</option>
+              <option value="full_autonomy">Full Autonomy — genuinely open, no suggested direction</option>
             </select>
+            <span class="muted" style="font-size:.78rem">Every run caps at 10 turns for cost control — starting again after is always available.</span>
             <button class="gold" id="modestart" type="button" style="margin-top:.5rem">Start</button>
           </div>
         </div>
@@ -669,6 +673,7 @@ const autonomybar = document.getElementById('autonomybar');
 const autonomylabel = document.getElementById('autonomylabel');
 const autonomystop = document.getElementById('autonomystop');
 const AUTONOMY_PACING_SECONDS = {{ autonomy_pacing_seconds | tojson }};
+const AUTONOMY_MAX_TURNS = {{ autonomy_max_turns | tojson }};
 let autonomyLiveSource = null;
 
 function connectAutonomyLiveFeed() {
@@ -700,12 +705,18 @@ function renderAutonomyStatus(s) {
                               // normal turn — this bar is the status
                               // and the kill switch, not the only
                               // place you can see what she's doing.
-  const modeName = s.mode === 'exploration' ? 'Exploration' : 'Contemplation';
+  const MODE_NAMES = {exploration: 'Exploration', creative: 'Creative',
+    contemplation: 'Contemplation', triadic: 'Triadic', full_autonomy: 'Full Autonomy'};
+  const TRIADIC_PHASES = ['Phaenic dreaming', 'Anthrian interpretation', 'grounding in Giaon'];
+  const modeName = MODE_NAMES[s.mode] || s.mode;
+  const phaseNote = s.mode === 'triadic' && typeof s.phase === 'number'
+    ? ` — ${TRIADIC_PHASES[s.phase % 3]}` : '';
+  const startedByNote = s.started_by === 'self' ? ' (her own initiative)' : '';
   const mins = Math.floor((s.elapsed_seconds || 0) / 60);
   const elapsed = mins < 1 ? 'just started' : `running ${mins}m`;
   autonomylabel.textContent = s.stopping
-    ? `${modeName} — finishing her current turn, then stopping… (${elapsed})`
-    : `${modeName} — acting on her own, turn ${s.turn_count} (${elapsed})`;
+    ? `${modeName}${startedByNote} — finishing her current turn, then stopping… (${elapsed})`
+    : `${modeName}${startedByNote} — turn ${s.turn_count}/${AUTONOMY_MAX_TURNS}${phaseNote} (${elapsed})`;
 }
 
 async function pollAutonomyStatus() {
