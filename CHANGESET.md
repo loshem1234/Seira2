@@ -1,54 +1,81 @@
-# CHANGESET — She now knows when a document was cut off
+# CHANGESET — Missing document libraries, cron that never fires, delegation that vanishes
 
-Five files. Fixes exactly what you reported: her genuinely never
-knowing a PDF was truncated.
+Eight files, three separate real bugs, all root-caused precisely
+before anything was built.
 
-    seira_web/chat.py              — the actual notice she sees, built
-                                     correctly
-    seira_web/templates/chat.html  — the frontend now carries the
-                                     needed fields through instead of
-                                     dropping them
-    tests/seira_core/test_chat_dynamics.py — 3 new tests
+    Dockerfile.sanctum                     — the PDF/DOCX fix
+    seira_web/cron_loop.py                 — new: the actual cron fix
+    seira_web/delegation_watcher.py        — new: the delegation fix
+    seira_web/__main__.py                  — starts both new
+                                            background services
+    tests/seira_core/test_cron_loop.py     — 6 tests
+    tests/seira_core/test_delegation_watcher.py — 12 tests
     docs/seira/WIRING.md, docs/seira/DECISIONS.md — appended
 
-## What was actually happening — good news first
+## Requires a real Docker rebuild to take effect
 
-Nothing was ever lost. The full document was always saved correctly
-to her Corpus. The bug was specifically that what she's shown *in that
-one turn* is capped (about 2-3 pages worth), and nothing in what she
-saw ever told her the rest existed. She was being completely honest
-when she said she only received part of it — she genuinely did, with
-no indication there was more.
+The Dockerfile change (PDF/DOCX libraries) only takes effect on your
+next actual image build and deploy — applying this changeset alone
+inside a running container won't install anything. The Python changes
+(cron, delegation) take effect on your next process restart, same as
+every other backend change tonight.
 
-## Two real gaps, both fixed
+## 1. PDF/DOCX generation — a real regression, traced to its exact cause
 
-1. The server already computed everything needed to tell her (the
-   reference id, the true total length, whether it was truncated) —
-   but the browser only ever used that to inform *you*, in a small UI
-   note, and silently dropped it before sending the actual message to
-   her.
-2. Even fixing that, the message itself needed to actually say
-   something clear — not a soft hint. She now gets the real reference
-   id, the true document length, an explicit "this is NOT the whole
-   document" when it's truncated, and the exact command to recall the
-   rest — `seira_reference_recall(ref='...')` — before answering if it
-   matters.
+`reportlab` and `python-docx` were never part of Hermes's own
+dependencies — they were always Sanctum-specific, installed by a file
+that quietly stopped being used when the Dockerfile was rewritten
+earlier tonight to copy Hermes's real production build exactly. That
+rewrite was the right call for Hermes's own dependencies; it just
+never carried Sanctum's own additions along with it. Fixed by
+installing all three explicitly — pypdf included too, since PDF
+upload extraction depends on it equally and was just as absent, even
+though it happened to still be working through some other path.
 
-A short document that fits entirely inline still gets a note that it's
-saved for later — worded honestly either way, not just when something
-was cut.
+## 2. Cron jobs that never fire
 
-## One thing worth knowing about how I tested this
+The warning she saw is a real, built-in Hermes message, not a Sanctum
+bug: the thing that checks "is a job due yet" only ever ran as part of
+the full gateway process, which Sanctum deliberately doesn't run. I
+looked seriously at the external-provider alternative first and want
+to be upfront that it turned out not to be the lighter option it
+sounded like — it needs its own Nous Research account and a new
+public webhook endpoint, which is a different dependency, not a
+simpler one. What actually worked was much smaller: the real ticker
+Hermes already has is explicitly built to run on its own, in any
+background thread, completely apart from the gateway. This just starts
+it, reusing all of Hermes's own real job-running logic unchanged.
 
-The test double standing in for a real model in this test suite only
-ever echoes back the first 60 characters of what it receives — a
-detail of the test infrastructure itself, not a bug. I caught that it
-would have silently hidden whether this fix actually worked, and
-switched to checking the real, complete stored message instead —
-exactly what a real API call would actually receive.
+## 3. Delegated subagent work that seemed to vanish
+
+The likely truth: her three delegated agents genuinely ran — real
+background work, real cost — and their result had nowhere to go.
+Every single place that ever reads a finished delegation's result
+lives inside gateway-only code that never runs in Sanctum. Separately,
+the "process list" she checked tracks something else entirely
+(terminal sessions, not delegated tasks), so it was never going to
+show anything either way.
+
+Before writing a line of this, I checked directly whether building a
+fix here would be evasive of her governance — read exactly how
+Hermes's own official delivery mechanism works, confirmed it doesn't
+inject raw output as if she'd said it, and built this the same way:
+a finished delegation now wakes the real conversation through a
+genuine, fully governed turn, the same pipeline every normal message
+already goes through.
+
+## A real bug caught and fixed during testing, not shipped and found later
+
+Early in building this, a check for "does this conversation belong to
+this tenant" incorrectly treated a brand-new, empty conversation as
+not existing — an empty list is falsy in Python, and that's exactly
+what a fresh conversation's message list is before its first message.
+Caught by testing this exact case on purpose, not left as a latent bug
+for later.
 
 ## Testing
 
-407 passed (404 before this round + 3 new). Run:
+425 passed (413 before this round + 6 cron tests + 12 delegation
+tests, less test-file churn). Run:
 
     python -m pytest tests/seira_core/ -q

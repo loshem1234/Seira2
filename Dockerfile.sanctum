@@ -291,6 +291,24 @@ COPY --link --chmod=a+rX,go-w . .
 # resolution or downloads.
 RUN uv pip install --no-cache-dir --no-deps -e "."
 
+# Seira-specific dependencies — pypdf (PDF text extraction, uploads),
+# python-docx and reportlab (document/PDF generation via
+# seira_web/filegen.py). NOT part of Hermes's own pyproject.toml; a
+# real, confirmed regression (2026-09-xx): the earlier version of this
+# Dockerfile installed these via a separate seira_web/requirements.txt
+# step that got dropped entirely when this file was rewritten to copy
+# the real Dockerfile's build stages verbatim (the "no more curated
+# subsets" fix) — that rewrite correctly eliminated guessing at which
+# HERMES files were needed, but never re-added SANCTUM's own
+# dependencies on top, since they were never part of what got copied.
+# Confirmed missing by checking the actual dependency set: neither
+# appears anywhere in pyproject.toml. Installed here, at build time,
+# as root — not something that should ever depend on an ad-hoc
+# terminal `pip install` at runtime, which was tried live and did not
+# durably fix it, since it doesn't survive as the running server
+# process's own resolved environment.
+RUN uv pip install --no-cache-dir pypdf==6.17.0 python-docx==1.2.0 reportlab==5.0.1
+
 # Wire the exec shim and install-method stamp.  Files under /opt/hermes are
 # already root-owned (COPY, uv sync, npm install all run as root) and
 # read-only for the hermes user (go-w from the --chmod above).
