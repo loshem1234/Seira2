@@ -1145,3 +1145,124 @@ Verified against the actual stored message record — what genuinely
 gets sent to the model — not a test double's own simplified echo,
 which turned out to have its own unrelated truncation that would have
 hidden the real fix's correctness if relied on directly.
+
+---
+
+## Part 23 — Three real fixes: missing document libraries, cron jobs that never fired, and delegated work that vanished
+
+All three reported live (2026-09-06), all three root-caused precisely
+before any code was written, not patched around symptoms.
+
+### PDF/DOCX generation — a real, confirmed regression, not a mystery
+
+`seira_create_file` failing for `pdf`/`docx` with "missing required
+libraries," even immediately after a successful terminal
+`pip install reportlab`, traced to its actual root: `reportlab` and
+`python-docx` are Sanctum-specific dependencies, never part of
+Hermes's own `pyproject.toml` (confirmed by checking directly — Hermes
+needs neither). The original, lightweight `Dockerfile.sanctum`
+installed them via a dedicated `seira_web/requirements.txt`. When that
+file was rewritten (Part 9) to copy the real production Dockerfile's
+build stages verbatim — correctly eliminating the "curated subset,
+always missing something" problem for HERMES's own dependencies — it
+never re-added SANCTUM's own dependencies on top, since those were
+never part of what got copied. A real, confirmed regression, now
+fixed: `pypdf`, `python-docx`, and `reportlab` are installed explicitly
+in `Dockerfile.sanctum`, pinned to versions verified to actually
+install cleanly, at build time, as root — not something dependent on
+an ad-hoc terminal install that (whatever its exact mechanism) already
+demonstrably didn't survive for the running server process.
+
+`pypdf` was included even though PDF *upload* appeared to be working —
+`seira_web/documents.py`'s extraction also depends on it, and it was
+equally absent; rather than leave that ambiguous, it's now installed
+explicitly too.
+
+### Cron — the real fix turned out simpler than either option originally discussed
+
+"Gateway is not running — jobs won't fire automatically" is a real,
+built-in Hermes warning, not a Sanctum bug — confirmed by finding its
+exact source (`hermes_cli/cron.py`): the ticker that checks whether a
+job is due only ever ran inside `gateway/run.py`, and Sanctum
+deliberately doesn't run the gateway.
+
+Checked the external-provider path (Chronos) directly before
+recommending it: it requires a Nous Research account and a new,
+publicly-reachable webhook endpoint for their infrastructure to call
+back into — a genuinely different, third-party dependency, not a
+lighter version of running the gateway.
+
+The actual fix turned out much smaller than either path: reading
+`cron/scheduler_provider.py`'s `InProcessCronScheduler` directly showed
+it's explicitly documented as portable — *"the caller runs it in a
+daemon thread"* — with every gateway-specific parameter optional and
+None-able. `seira_web/cron_loop.py` starts this exact, already-proven
+scheduler directly from Sanctum's own process, the same way
+`tripwire_loop.py` already starts its own background work — reusing
+Hermes's real job-execution and delivery logic (`cron.scheduler.tick`)
+entirely unchanged, not reimplementing any of it. `HERMES_HOME` is
+confirmed single, global, and process-wide in this deployment (not
+per-tenant, same as the skills directory), so this runs the
+scheduler's single-profile path, correctly.
+
+### Delegated subagent work — genuinely dispatched, never delivered
+
+"Delegated three agents... process list was empty, nothing was
+actually dispatched" traced to two separate findings, not one.
+
+First: the work almost certainly *did* dispatch and run for real.
+Every single consumer of `tools.process_registry.completion_queue` —
+the shared queue a completed delegation's result is pushed onto —
+lives in `gateway/run.py`, `gateway/platforms/api_server.py`, or
+`tui_gateway/server.py`. None of them run in Sanctum. The subagents'
+work was never lost; its result was orphaned, with nothing ever
+draining the queue to deliver it back.
+
+Second: the "process list" that was checked
+(`tools/process_registry.py`'s `ProcessRegistry.list_sessions`) tracks
+*terminal sessions* — a genuinely different structure from delegation
+records, which live in `tools/async_delegation.py`'s own tracking.
+Checking it was never going to show delegation status either way,
+regardless of whether dispatch succeeded.
+
+**Confirmed not evasive of her governance before building anything —
+checked directly, not assumed.** Read `gateway/run.py`'s own
+`_async_delegation_watcher` and `_deliver_completion_notification`
+before writing `seira_web/delegation_watcher.py`. Even the "official"
+mechanism doesn't inject a subagent's raw output into the conversation
+as if she'd said it — it delivers a synthetic *incoming* event that
+"wakes" the originating session, routing the notification through the
+normal, fully governed agent turn pipeline, and lets her actually
+process it and produce her own response. `delegation_watcher.py` does
+the same thing — architecturally identical to that pattern, and to
+`autonomy_loop.py`'s already-tested "background thread triggers a real
+`run_turn_via_hermes` call" design, not a new, less-governed path. The
+delegation gate itself (Art. 26/35) is untouched either way — it
+already ran, and already approved the delegation, the moment
+`delegate_task` was first called; this only concerns delivering an
+already-approved delegation's result.
+
+**Routing confirmed by reading the real code, not assumed.**
+`tools/delegate_tool.py` sets a completion event's `parent_session_id`
+directly from `getattr(parent_agent, "session_id", None)` —
+`hermes_session._build_agent` already sets `session_id=conv_id` for
+every Sanctum turn. A completion event's `parent_session_id` genuinely
+is the Sanctum `conv_id` that originated it; no new plumbing was
+needed to know which conversation to wake.
+
+Delivery is deliberately best-effort, attempted once per event, not
+retried on failure — stated plainly, not an oversight: the real
+gateway mechanism itself makes no cross-process exactly-once delivery
+guarantee either, and retrying here would risk a real problem (a
+duplicated notification) for no real gain, since a delegation's actual
+result stays safely in its own records regardless of whether this
+specific delivery attempt succeeds.
+
+**A real bug caught while building and testing this, not shipped
+unnoticed.** The first version of `_find_owning_tenant` checked
+`if convs.records(conv_id)` — but a freshly created, still-empty
+conversation correctly returns `[]` from `records()`, and `[]` is
+falsy in Python, so a genuinely-existing conversation with no messages
+yet would have been misreported as unknown. Fixed to check the
+conversation index directly; a dedicated regression test now covers
+exactly this case.

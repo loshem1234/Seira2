@@ -1755,3 +1755,63 @@ real fix worked, since the notice text lives well past character 60.
 Switched to asserting against `conversations.records()` — the actual
 persisted message, identical to what a real API call would receive —
 which is both the more honest test and, incidentally, a stronger one.
+
+**D193. Missing PDF/DOCX libraries were a real, confirmed regression
+from the Part 9 Dockerfile rewrite, traced to its exact origin, not
+guessed at.** `reportlab`/`python-docx`/`pypdf` were never part of
+Hermes's own `pyproject.toml` — confirmed directly — and were only
+ever installed via Sanctum's own `seira_web/requirements.txt`, a step
+that silently disappeared when `Dockerfile.sanctum` was rewritten to
+copy the real production Dockerfile's build stages verbatim. That
+rewrite was correct for eliminating Hermes's own curated-subset
+problem; it simply never re-added Sanctum's own additional
+dependencies on top. Fixed by installing all three explicitly, pinned
+to versions verified to actually resolve and install cleanly from
+PyPI before being added to the build.
+
+**D194. Chronos (the external cron provider) was checked directly and
+ruled out as a lighter alternative before recommending anything —
+it requires a Nous Research account and a new public webhook endpoint,
+a different third-party dependency, not a simpler version of running
+the gateway.**
+
+**D195. The actual cron fix reuses `InProcessCronScheduler` directly
+rather than reimplementing any scheduling or delivery logic.**
+Confirmed by reading its own docstring and implementation: explicitly
+designed to be portable ("the caller runs it in a daemon thread"),
+every gateway-specific parameter optional. `seira_web/cron_loop.py`
+starts it exactly the way `tripwire_loop.py` already starts its own
+background work — one more instance of "reuse the proven pattern,"
+not a new one invented for this.
+
+**D196. `delegation_watcher.py` was explicitly checked for governance
+evasion before being built, not assumed safe.** Read
+`gateway/run.py`'s own completion-delivery mechanism directly: even
+the official path doesn't inject raw subagent output as if she'd said
+it — it wakes the session through the normal, fully governed turn
+pipeline. This module does the identical thing. The delegation gate
+itself (Art. 26/35) is unaffected either way, since it already ran at
+the original `delegate_task` call; this module only concerns
+delivering an already-approved delegation's result.
+
+**D197. Completion routing needed no new plumbing — confirmed by
+reading `tools/delegate_tool.py` directly, not assumed.** A
+completion event's `parent_session_id` is set from
+`agent.session_id`, which Sanctum already sets to `conv_id` for every
+turn. The Sanctum `conv_id` that originated a delegation is already
+present on its completion event.
+
+**D198. Delivery is deliberately best-effort, attempted once, never
+retried on failure.** The real gateway mechanism makes no
+cross-process exactly-once guarantee either; retrying here would risk
+a duplicated notification for no real benefit, since a delegation's
+result remains safely in its own records regardless of this specific
+delivery attempt's outcome.
+
+**D199. A real bug — `if convs.records(conv_id)` treating a freshly
+created, genuinely-existing but still-empty conversation as
+"unknown," since an empty list is falsy — was caught while building
+and testing this feature, not shipped and found later.** Fixed to
+check the conversation index directly; a dedicated regression test
+(`test_find_owning_tenant_works_for_a_conversation_with_no_messages_yet`)
+now exists specifically for this case.
