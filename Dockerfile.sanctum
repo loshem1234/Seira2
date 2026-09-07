@@ -294,20 +294,32 @@ RUN uv pip install --no-cache-dir --no-deps -e "."
 # Seira-specific dependencies — pypdf (PDF text extraction, uploads),
 # python-docx and reportlab (document/PDF generation via
 # seira_web/filegen.py). NOT part of Hermes's own pyproject.toml; a
-# real, confirmed regression (2026-09-xx): the earlier version of this
-# Dockerfile installed these via a separate seira_web/requirements.txt
-# step that got dropped entirely when this file was rewritten to copy
-# the real Dockerfile's build stages verbatim (the "no more curated
-# subsets" fix) — that rewrite correctly eliminated guessing at which
-# HERMES files were needed, but never re-added SANCTUM's own
-# dependencies on top, since they were never part of what got copied.
-# Confirmed missing by checking the actual dependency set: neither
-# appears anywhere in pyproject.toml. Installed here, at build time,
-# as root — not something that should ever depend on an ad-hoc
-# terminal `pip install` at runtime, which was tried live and did not
-# durably fix it, since it doesn't survive as the running server
-# process's own resolved environment.
-RUN uv pip install --no-cache-dir pypdf==6.17.0 python-docx==1.2.0 reportlab==5.0.1
+# real, confirmed regression: the earlier version of this Dockerfile
+# installed these via a separate seira_web/requirements.txt step that
+# got dropped entirely when this file was rewritten to copy the real
+# Dockerfile's build stages verbatim (the "no more curated subsets"
+# fix) — that rewrite correctly eliminated guessing at which HERMES
+# files were needed, but never re-added SANCTUM's own dependencies on
+# top, since they were never part of what got copied.
+#
+# Deliberately unpinned here, after a real build failure (2026-09-06):
+# an earlier version of this line pinned exact versions
+# (pypdf==6.17.0, python-docx==1.2.0, reportlab==5.0.1), verified to
+# resolve and install cleanly in a sandbox test at the time — but the
+# actual Railway build failed shortly after with "there is no version
+# of pypdf==6.17.0". Re-running the identical unpinned resolution
+# afterward returned pypdf==6.16.2 instead of 6.17.0, the likely real
+# explanation: 6.17.0 was published, tested, pinned, and then yanked
+# from PyPI in the window before the real build ran. Rather than pin
+# another specific version and risk the same class of failure
+# silently blocking every deploy behind it again, this lets uv
+# resolve whatever version is actually available and compatible with
+# this exact build environment at build time — installed here, as
+# root, not something that should ever depend on an ad-hoc terminal
+# `pip install` at runtime, which was tried live and did not durably
+# fix it, since it doesn't survive as the running server process's
+# own resolved environment.
+RUN uv pip install --no-cache-dir pypdf python-docx reportlab
 
 # Wire the exec shim and install-method stamp.  Files under /opt/hermes are
 # already root-owned (COPY, uv sync, npm install all run as root) and
