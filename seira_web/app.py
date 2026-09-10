@@ -723,6 +723,25 @@ def create_app(llm_client_factory=None) -> FastAPI:
         return JSONResponse(autonomy_loop.stop(account["tenant_id"],
                                                requested_by="architect"))
 
+    @app.post("/api/autonomy/force-clear")
+    def autonomy_force_clear(account: dict = Depends(require_account)):
+        """A real safety valve, not a normal stop request — clears the
+        status display immediately, regardless of whether a turn is
+        still genuinely in flight. Exists for exactly the situation
+        reported live (2026-09-10): the bar kept showing "running"
+        with no visible activity and no turn count, and the ordinary
+        stop request has no effect on a turn that's already stuck
+        waiting on something (a repeatedly failing delegate_task call,
+        for instance) — a floor Loshem himself asked for tonight
+        stays honest here too: this clears the DISPLAY, it does not
+        and cannot guarantee an already-running background thread has
+        actually stopped doing work — only a full process restart can
+        guarantee that, the same honest limit already documented for
+        the ordinary kill switch."""
+        from seira_web import autonomy
+        autonomy.clear(account["tenant_id"])
+        return JSONResponse({"active": False, "force_cleared": True})
+
     @app.get("/api/autonomy/status")
     def autonomy_status(account: dict = Depends(require_account)):
         from seira_web import autonomy_loop, conversations as convs
