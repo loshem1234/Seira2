@@ -227,6 +227,11 @@ a:focus, button:focus, input:focus, textarea:focus {
   flex-shrink: 0; }
 .autonomybar #autonomylabel { flex: 1; }
 .autonomybar #autonomystop { padding: .3rem .9rem; font-size: .8rem; }
+.autonomybar #autonomyforceclear { padding: .3rem .7rem; font-size: .72rem;
+  background: none; border: 1px solid var(--edge); color: var(--text-dim);
+  border-radius: 3px; cursor: pointer; }
+.autonomybar #autonomyforceclear:hover { color: var(--text); border-color: var(--gold-dim); }
+.autonomybar #autonomyforceclear.confirming { color: var(--rust); border-color: var(--rust); }
 .msg.autonomous .who { color: #e0a04a; }
 
 /* Rising embers: a quiet field of drifting sparks behind the thread */
