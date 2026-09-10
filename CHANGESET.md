@@ -1,38 +1,31 @@
-# CHANGESET — Auto-titled, self-summarizing conversations
+# CHANGESET — Knowing which chat is actually running
 
-Eight files. New capability, no bug fix this time.
+Five files. A real gap, not a cosmetic one: the status bar looked
+identical whether the running conversation was the one you had open or
+a completely different one.
 
-    seira_web/conversation_summarizer.py — new: the background pass
-    seira_web/conversations.py            — title_user_set tracking,
-                                            the new update function
-    seira_web/__main__.py                 — starts the new background
-                                            service
-    seira_web/templates/chat.html         — the summary icon + popover
-    seira_web/static/style.css            — its styling
-    tests/seira_core/test_conversation_summarizer.py — 22 tests
+    seira_web/app.py               — status now includes the running
+                                     conversation's real title
+    seira_web/templates/chat.html  — the bar now says so, with a link
+    tests/seira_core/test_ui_update_app.py — 1 new test
     docs/seira/WIRING.md, docs/seira/DECISIONS.md — appended
 
-## What you'll see
+## What changes
 
-Every conversation in the sidebar now keeps itself labeled on its
-own. Once a day (but only for conversations that actually had new
-messages since their last summary — an untouched conversation costs
-nothing), each one gets a short auto-generated title and a few bullet
-points describing what's actually in it. A small icon appears next to
-any conversation that has a summary — click or tap it to see the
-bullets, or just hover the conversation name itself for a quick native
-tooltip. Both work, since tapping is what actually works on a phone.
+If you open a conversation and an autonomous run is happening
+somewhere else — started earlier, in a different chat — the bar now
+says exactly that: "running in 'Kitchen Renovation Plans', not this
+chat," with a direct link to jump there. If it IS the conversation
+you're looking at, nothing extra shows, since that's already obvious.
 
-## Two things worth knowing
-
-If you've renamed a conversation yourself, that name is permanent —
-the auto-namer will never touch it, only conversations you've never
-renamed get an automatic title. And a background summary pass never
-bumps a conversation to the top of the list by itself; only you
-actually talking in it does that.
+One thing I checked rather than assumed: the Stop button already
+worked correctly no matter which conversation page you were on when
+you clicked it — it stops the one active run for your account, not
+whatever happens to be open. That needed no change; verified before
+saying so.
 
 ## Testing
 
-447 passed (425 before this round + 22 new). Run:
+448 passed (447 before this round + 1 new). Run:
 
     python -m pytest tests/seira_core/ -q
