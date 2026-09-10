@@ -138,7 +138,7 @@ a:focus, button:focus, input:focus, textarea:focus {
 .convo.active { border-color: var(--gold-dim); color: var(--gold-bright);
   background: rgba(212,175,55,.06); }
 .convo-row { display: flex; align-items: center; gap: .25rem; margin-bottom: .1rem;
-  border-radius: 3px; }
+  border-radius: 3px; position: relative; }
 .convo-row .convo { flex: 1; min-width: 0; margin-bottom: 0; border: none; }
 .convo-row.active .convo { border-color: var(--gold-dim); color: var(--gold-bright);
   background: rgba(212,175,55,.06); }
@@ -149,6 +149,13 @@ a:focus, button:focus, input:focus, textarea:focus {
   cursor: pointer; padding: .3rem; border-radius: 3px; display: grid; place-items: center; }
 .convoicon:hover { color: var(--gold-bright); background: rgba(212,175,55,.1); }
 .convoicon.act-archive.confirming { color: var(--rust); }
+.convo-summary-popover { position: absolute; top: 100%; left: .3rem; right: .3rem;
+  z-index: 20; margin: .2rem 0 0; padding: .55rem .7rem; list-style: none;
+  background: var(--void); border: 1px solid var(--gold-dim); border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.4); font-size: .82rem; color: var(--text); }
+.convo-summary-popover li { margin: .2rem 0; padding-left: .8rem; position: relative; }
+.convo-summary-popover li::before { content: "·"; position: absolute; left: 0;
+  color: var(--gold-dim); }
 .convo-rename-input { width: 100%; background: var(--void); border: 1px solid var(--gold-dim);
   color: var(--text); padding: .45rem .6rem; font: inherit; font-size: .92rem;
   border-radius: 3px; }
@@ -208,6 +215,19 @@ a:focus, button:focus, input:focus, textarea:focus {
    the braid itself. */
 @keyframes breathe { 0%,100% { opacity: .25; transform: scale(.8); }
   50% { opacity: 1; transform: scale(1.15); } }
+
+/* Autonomy bar: the real, always-reachable kill switch. Sits above the
+   messages, never scrolls away, unmissable while a mode is active. */
+.autonomybar { display: flex; align-items: center; gap: .7rem;
+  padding: .55rem 1rem; margin: 0 0 .2rem;
+  background: rgba(74, 20, 20, .45); border-bottom: 1px solid #6b2b2b;
+  font-size: .85rem; color: var(--text); }
+.autonomybar .orb { width: .55rem; height: .55rem; border-radius: 50%;
+  background: #e0a04a; animation: breathe 1.4s ease-in-out infinite;
+  flex-shrink: 0; }
+.autonomybar #autonomylabel { flex: 1; }
+.autonomybar #autonomystop { padding: .3rem .9rem; font-size: .8rem; }
+.msg.autonomous .who { color: #e0a04a; }
 
 /* Rising embers: a quiet field of drifting sparks behind the thread */
 .chatcol { position: relative; }
@@ -397,6 +417,6 @@ form.stack button { margin-top: 1rem; }
   font-family: 'Cinzel Decorative', serif; }
 @media (prefers-reduced-motion: reduce) {
   .sigil-pulse, .braid, .braid .strand, .ember,
-  .msg.assistant.streaming .body::after { animation: none !important; }
+  .msg.assistant.streaming .body::after, .autonomybar .orb { animation: none !important; }
   .ember { display: none; }
   * { transition: none !important; } }
