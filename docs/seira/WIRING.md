@@ -1266,3 +1266,54 @@ falsy in Python, so a genuinely-existing conversation with no messages
 yet would have been misreported as unknown. Fixed to check the
 conversation index directly; a dedicated regression test now covers
 exactly this case.
+
+---
+
+## Part 24 — Auto-titled, self-summarizing conversations
+
+Per Loshem's direction (2026-09-07): "so I can always know what and
+where the chats are" — every conversation now keeps its own sidebar
+entry meaningfully labeled, without anyone needing to name it.
+
+**A real, deliberately lightweight background pass, not a Hermes
+turn.** `seira_web/conversation_summarizer.py` runs on a daily
+interval by default (matching "maybe once a day"), but only actually
+re-summarizes a conversation if it's had genuine new activity since
+its last summary — an untouched conversation costs nothing on a given
+day, regardless of how often the loop ticks. Deliberately a plain,
+tool-free text completion (`seira_web.chat.AnthropicClient`, small
+`max_tokens`), not a real agent turn — this isn't her speaking or
+acting, it's a system-level labeling utility, the same category of
+thing as an auto-generated commit message. No governance machinery
+applies because none is needed: nothing here claims to be her.
+
+**A title the Architect chooses is never overwritten.** Renaming a
+conversation (the existing feature) now sets a `title_user_set` flag;
+the background summarizer checks this before ever touching a
+conversation's title, proposing a name only where none was chosen.
+Bullet points always refresh regardless — they describe content, not
+something anyone would "rename." Verified by test in both directions:
+a manual rename survives an auto-update pass untouched, and a
+never-renamed conversation's title does get replaced.
+
+**A background summary refresh never reorders the sidebar by
+itself.** `auto_update_title_and_summary` deliberately does not touch
+a conversation's `updated` timestamp — only real activity should move
+a conversation to the top of a most-recently-updated list; a quiet
+background labeling pass must not masquerade as new activity.
+Verified by test.
+
+**The UI.** A small icon appears next to a conversation whenever it
+has a summary — click or tap toggles a popover showing the bullet
+points (closes when clicking elsewhere, or when a different
+popover opens), and the conversation's own link carries a native
+`title` tooltip for a plain hover on desktop — covering both
+interaction models, since hover alone doesn't work on a touch device
+and a person specifically asked for both.
+
+**Failure handling.** A failed completion, an unparseable response, or
+a conversation with too little content yet (fewer than two real turns)
+are all handled by simply skipping that conversation for this pass,
+logged, never raised — a labeling utility failing quietly for one
+conversation must never take down the background loop or block any
+other conversation's turn.

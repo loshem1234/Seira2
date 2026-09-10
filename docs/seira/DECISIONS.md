@@ -1815,3 +1815,32 @@ and testing this feature, not shipped and found later.** Fixed to
 check the conversation index directly; a dedicated regression test
 (`test_find_owning_tenant_works_for_a_conversation_with_no_messages_yet`)
 now exists specifically for this case.
+
+**D200. Conversation auto-summarization deliberately uses a plain
+text completion, not a real Hermes agent turn.** This isn't her
+speaking or acting — it's a system-level utility labeling
+conversations for a sidebar, the same category as an auto-generated
+commit message. No governance machinery was bypassed because none
+applies: nothing here claims to be her, and nothing here is presented
+to the Architect as her voice.
+
+**D201. A title the Architect explicitly chose is never silently
+overwritten by the auto-namer — a real, tested guarantee, not a
+convention.** `rename_conversation` sets `title_user_set = True`;
+`auto_update_title_and_summary` checks this flag before ever touching
+`title`. Bullets always refresh regardless of this flag, since they
+describe content rather than being a name someone chose.
+
+**D202. A background summary refresh deliberately never touches a
+conversation's `updated` timestamp.** Only genuine activity should
+move a conversation to the top of a most-recently-updated sidebar; a
+quiet, unattended labeling pass updating that same field would
+silently reorder the list for no reason visible to the person looking
+at it. Verified by test.
+
+**D203. Refresh is need-based, not blind-scheduled — a real cost
+consideration, not just a nicety.** Every conversation is checked
+against its own `summary_updated_at` vs `updated`; only conversations
+with genuine new activity since their last summary are ever
+re-summarized on a given pass, regardless of how frequently the
+background loop itself ticks.
