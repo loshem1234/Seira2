@@ -170,6 +170,30 @@ def test_autonomy_status_when_nothing_running(client):
     assert r.status_code == 200 and r.json()["active"] is False
 
 
+def test_autonomy_status_includes_the_running_conversations_title(client, monkeypatch):
+    """Real gap closed: the bar used to show 'active' with no way to
+    tell WHICH conversation was actually running, especially confusing
+    when viewing a different one. The status response must carry the
+    conversation's real title, not just its raw id, so the frontend
+    can say so plainly."""
+    monkeypatch.setenv("SEIRA_SANCTUM_RUNTIME", "hermes")
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    from seira_web import conversations as convs, autonomy
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        conv = convs.create_conversation("Kitchen Renovation Plans")
+        autonomy.start(account["tenant_id"], conv["conv_id"], "creative")
+        try:
+            r = client.get("/api/autonomy/status")
+            data = r.json()
+            assert data["active"] is True
+            assert data["conv_id"] == conv["conv_id"]
+            assert data["conv_title"] == "Kitchen Renovation Plans"
+        finally:
+            autonomy.clear(account["tenant_id"])
+
+
 def test_autonomy_start_refused_outside_hermes_mode(client, monkeypatch):
     """Real safety property: her full capability set (search,
     generation, project tools) only exists in hermes mode — starting
