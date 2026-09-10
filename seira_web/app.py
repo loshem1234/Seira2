@@ -725,13 +725,19 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     @app.get("/api/autonomy/status")
     def autonomy_status(account: dict = Depends(require_account)):
-        from seira_web import autonomy_loop
+        from seira_web import autonomy_loop, conversations as convs
         rec = autonomy_loop.status(account["tenant_id"])
         if rec.get("active"):
             import datetime as _dt
             started = _dt.datetime.fromisoformat(rec["started_at"])
             rec["elapsed_seconds"] = int((_dt.datetime.now(_dt.timezone.utc)
                                           - started).total_seconds())
+            # A raw conv_id tells nobody anything at a glance — the
+            # actual title is what lets the bar say WHICH chat is
+            # running, especially when it isn't the one currently open.
+            match = next((c for c in convs.list_conversations(include_archived=True)
+                         if c["conv_id"] == rec.get("conv_id")), None)
+            rec["conv_title"] = match["title"] if match else None
         return JSONResponse(rec)
 
     @app.get("/api/conversations/{conv_id}/live")
