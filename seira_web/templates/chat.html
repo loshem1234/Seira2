@@ -744,9 +744,23 @@ function renderAutonomyStatus(s) {
   const startedByNote = s.started_by === 'self' ? ' (her own initiative)' : '';
   const mins = Math.floor((s.elapsed_seconds || 0) / 60);
   const elapsed = mins < 1 ? 'just started' : `running ${mins}m`;
-  autonomylabel.textContent = s.stopping
+  const statusText = s.stopping
     ? `${modeName}${startedByNote} — finishing her current turn, then stopping… (${elapsed})`
     : `${modeName}${startedByNote} — turn ${s.turn_count}/${AUTONOMY_MAX_TURNS}${phaseNote} (${elapsed})`;
+
+  // Real gap this closes: the bar used to show "active" regardless of
+  // which conversation you actually had open, with no way to tell
+  // whether it was THIS chat or a different one running in the
+  // background — confusing if you're looking at chat A while
+  // something started earlier in chat B is what's actually running.
+  if (s.conv_id && s.conv_id !== CONV) {
+    const name = esc(s.conv_title || 'another conversation');
+    autonomylabel.innerHTML = `${esc(statusText)} — running in `
+      + `<a href="/?c=${encodeURIComponent(s.conv_id)}" style="color:inherit;`
+      + `text-decoration:underline">${name}</a>, not this chat`;
+  } else {
+    autonomylabel.textContent = statusText;
+  }
 }
 
 async function pollAutonomyStatus() {
