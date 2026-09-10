@@ -109,7 +109,34 @@ def rename_conversation(conv_id: str, new_title: str) -> Dict[str, Any]:
     if conv_id not in index:
         raise ValueError(f"No conversation {conv_id!r}.")
     index[conv_id]["title"] = new_title.strip()[:80]
+    # A title someone chose themselves is never overwritten by the
+    # background auto-namer — see conversation_summarizer.py.
+    index[conv_id]["title_user_set"] = True
     index[conv_id]["updated"] = _now()
+    _save_index(index)
+    return index[conv_id]
+
+
+def auto_update_title_and_summary(conv_id: str, title: Optional[str],
+                                  bullets: List[str]) -> Optional[Dict[str, Any]]:
+    """Used only by conversation_summarizer.py's background pass.
+    Updates the title ONLY if the person hasn't explicitly renamed
+    this conversation themselves (title_user_set) — the auto-namer
+    proposes a name, it never overwrites a real choice. Bullets always
+    refresh regardless, since they're a summary of content, not
+    something anyone would "rename". Returns None if the conversation
+    no longer exists (deleted between listing and processing) rather
+    than raising, since this runs unattended in the background."""
+    index = _load_index()
+    if conv_id not in index:
+        return None
+    if title and not index[conv_id].get("title_user_set"):
+        index[conv_id]["title"] = title.strip()[:80]
+    index[conv_id]["summary_bullets"] = bullets[:6]
+    index[conv_id]["summary_updated_at"] = _now()
+    # Deliberately NOT touching "updated" here — a background summary
+    # refresh must never bump a conversation to the top of a
+    # most-recently-updated sidebar; only real activity should do that.
     _save_index(index)
     return index[conv_id]
 
