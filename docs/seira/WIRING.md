@@ -1317,3 +1317,40 @@ are all handled by simply skipping that conversation for this pass,
 logged, never raised — a labeling utility failing quietly for one
 conversation must never take down the background loop or block any
 other conversation's turn.
+
+---
+
+## Part 25 — Knowing WHICH chat is actually running
+
+Raised directly (2026-09-10): the autonomy bar said "running" but gave
+no way to tell whether it was the conversation currently open, or a
+different one that had a run started in it earlier.
+
+**A real gap, not a display nicety.** Only one autonomous run is ever
+allowed per tenant at a time (`autonomy.start` refuses a second), but
+the status bar shows on *every* chat page regardless of which
+conversation is actually the one running — so viewing conversation A
+while an earlier run in conversation B is what's genuinely active
+looked identical to a run happening in the conversation right in
+front of you.
+
+**Fixed by carrying the real conversation title through, not just its
+id.** `/api/autonomy/status` now looks up and includes `conv_title`
+alongside the existing `conv_id` — a raw id told nobody anything at a
+glance. When the running conversation differs from the one currently
+open (`s.conv_id !== CONV`), the bar says so plainly — *"running in
+'Kitchen Renovation Plans', not this chat"* — with a direct link to
+jump there. When it IS the current conversation, nothing extra is
+shown, since that's already obvious.
+
+**The Stop button already worked correctly across conversations, and
+still does — confirmed, not assumed.** `/api/autonomy/stop` operates
+on the tenant's single active run regardless of which conversation
+page issued the request, so stopping a run from a different chat than
+the one it's actually happening in already worked before this fix and
+needed no change.
+
+Verified by actually executing the rendering function against a
+simulated DOM with a genuinely different conv_id and confirming the
+title, the link, and the "not this chat" note all appear correctly —
+not just that the code compiles.

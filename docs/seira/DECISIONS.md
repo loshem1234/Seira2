@@ -1844,3 +1844,20 @@ against its own `summary_updated_at` vs `updated`; only conversations
 with genuine new activity since their last summary are ever
 re-summarized on a given pass, regardless of how frequently the
 background loop itself ticks.
+
+**D204. The autonomy status bar now identifies WHICH conversation is
+actually running, not just that something is — raised directly as a
+real point of confusion, not a cosmetic gap.** `/api/autonomy/status`
+looks up and returns the running conversation's real title alongside
+its id; the frontend compares it against the conversation currently
+open and, when they differ, says so explicitly with a direct link
+rather than leaving an ambiguous "active" that could belong to any
+conversation. Verified by executing the actual rendering function
+against a simulated DOM with a genuinely mismatched conversation id,
+not just visual inspection of the diff.
+
+**D205. Confirmed, not assumed: the Stop button already worked
+correctly regardless of which conversation page issued the request,
+requiring no change.** `/api/autonomy/stop` operates on the tenant's
+one active run, not on whichever conv_id happens to be open in the
+browser — checked directly before claiming this needed no fix.
