@@ -1861,3 +1861,25 @@ correctly regardless of which conversation page issued the request,
 requiring no change.** `/api/autonomy/stop` operates on the tenant's
 one active run, not on whichever conv_id happens to be open in the
 browser — checked directly before claiming this needed no fix.
+
+**D206. `force-clear` is a genuinely separate control from `stop`, not
+a more aggressive version of the same request — because the two solve
+different failure modes.** `stop` asks a live loop to end after its
+current turn; it depends on that loop being able to notice the
+request, which a genuinely stuck turn cannot do. `force-clear` removes
+the status record directly and unconditionally, with no dependency on
+the loop's own cooperation — the actual answer to a status that's
+stuck rather than merely slow.
+
+**D207. Force-clear's own honesty limit is stated as explicitly as the
+ordinary kill switch's, not softened because the action itself is more
+forceful.** It clears the display and permits a new run to start; it
+does not and cannot guarantee a background thread has genuinely
+stopped doing work. Only a full process restart guarantees that — the
+same limitation already true of `stop`, restated here rather than
+implied to no longer apply just because this button acts more
+immediately.
+
+**D208. Gated with the same tap-twice confirmation already established
+for the archive button, deliberately, not a new pattern invented for
+this one control.**

@@ -1354,3 +1354,45 @@ Verified by actually executing the rendering function against a
 simulated DOM with a genuinely different conv_id and confirming the
 title, the link, and the "not this chat" note all appear correctly —
 not just that the code compiles.
+
+---
+
+## Part 26 — A real safety valve for a stuck autonomy status
+
+Raised live (2026-09-10): the bar showed "running" with no visible
+activity, no turn count, and the ordinary Stop request had no
+apparent effect.
+
+**A genuine second control, not a bigger hammer for the same
+button.** `/api/autonomy/stop` asks the loop to end after its current
+turn — honest, but powerless against a turn that's genuinely stuck
+(most plausibly, per the same-day delegation investigation, a turn
+repeatedly failing a `delegate_task` call and never completing).
+`/api/autonomy/force-clear` is different in kind: it clears the status
+record directly, immediately, with no dependency on the background
+loop ever noticing anything.
+
+**Its own honesty limit is stated as plainly as the ordinary kill
+switch's.** Force-clear can guarantee the *display* is no longer stuck
+and that a new run can be started. It cannot and does not claim to
+guarantee an already-running background thread has actually stopped
+doing work — that's the same limitation already documented for the
+ordinary stop, restated here rather than glossed over just because
+this button is more forceful. A full process restart remains the only
+way to guarantee that.
+
+**Gated the same way the existing archive button already is** — tap
+once to arm, tap again within a few seconds to actually act — matching
+an established UI pattern rather than inventing a new confirmation
+style for this one button.
+
+**One real, if likely, explanation offered alongside the fix, not
+instead of it.** The symptom description — a static, unchanging
+"Running on her own" rather than the dynamic status text this bar is
+built to show — matches exactly what the page's *unmodified default
+placeholder* looks like before any JavaScript updates it, which lines
+up with the same deployment-lag pattern that explained several other
+"still broken" reports earlier the same night. Both things can be
+true at once: the deployed page may simply predate these fixes, *and*
+a real, permanent recovery path is still worth having regardless of
+which explanation turns out to be correct this time.
