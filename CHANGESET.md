@@ -1,31 +1,37 @@
-# CHANGESET — Knowing which chat is actually running
+# CHANGESET — A real recovery path for a stuck autonomy status
 
-Five files. A real gap, not a cosmetic one: the status bar looked
-identical whether the running conversation was the one you had open or
-a completely different one.
+Six files. A genuine second control, not a bigger version of Stop.
 
-    seira_web/app.py               — status now includes the running
-                                     conversation's real title
-    seira_web/templates/chat.html  — the bar now says so, with a link
-    tests/seira_core/test_ui_update_app.py — 1 new test
+    seira_web/app.py               — the new force-clear route
+    seira_web/templates/chat.html  — the button, next to Stop
+    seira_web/static/style.css     — its (deliberately quieter) styling
+    tests/seira_core/test_ui_update_app.py — 2 new tests
     docs/seira/WIRING.md, docs/seira/DECISIONS.md — appended
 
-## What changes
+## Why this is a different button, not a stronger Stop
 
-If you open a conversation and an autonomous run is happening
-somewhere else — started earlier, in a different chat — the bar now
-says exactly that: "running in 'Kitchen Renovation Plans', not this
-chat," with a direct link to jump there. If it IS the conversation
-you're looking at, nothing extra shows, since that's already obvious.
+Stop asks a running loop to end after its current turn — honest, but
+it depends on that loop actually being able to check for the request,
+which a genuinely stuck turn can't do. Force-clear doesn't ask
+anything; it just removes the stuck status directly, so you're never
+left with no way forward except restarting the whole service.
 
-One thing I checked rather than assumed: the Stop button already
-worked correctly no matter which conversation page you were on when
-you clicked it — it stops the one active run for your account, not
-whatever happens to be open. That needed no change; verified before
-saying so.
+## Please read this part
+
+Force-clear guarantees the display stops looking stuck and that you
+can start a new run. It does **not** guarantee that whatever was
+actually running in the background has genuinely stopped doing work —
+that's the same honest limit that already applied to the regular Stop
+button, not something new. Only a full restart guarantees that for
+certain. I'd rather you know exactly what this button does than
+assume it's more powerful than it is.
+
+Gated the same way your existing delete button already is — tap once
+to arm it, tap again to actually act — so it can't be triggered by
+accident.
 
 ## Testing
 
-448 passed (447 before this round + 1 new). Run:
+450 passed (448 before this round + 2 new). Run:
 
     python -m pytest tests/seira_core/ -q
