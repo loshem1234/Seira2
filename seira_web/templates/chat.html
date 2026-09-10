@@ -57,6 +57,7 @@
       <span class="orb"></span>
       <span id="autonomylabel">Running on her own</span>
       <button class="gold" id="autonomystop" type="button">Stop</button>
+      <button id="autonomyforceclear" type="button" title="Clear a stuck status display — does not guarantee background work has actually stopped; only a full restart guarantees that">Force clear</button>
     </div>
     <div class="msgs" id="msgs">
       {% for r in history %}
@@ -791,6 +792,23 @@ autonomystop.addEventListener('click', async () => {
     const r = await fetch('/api/autonomy/stop', {method: 'POST'});
     if (r.ok) renderAutonomyStatus(await r.json());
   } finally { autonomystop.disabled = false; }
+});
+
+const forceClearBtn = document.getElementById('autonomyforceclear');
+forceClearBtn.addEventListener('click', async () => {
+  if (!forceClearBtn.classList.contains('confirming')) {
+    forceClearBtn.classList.add('confirming');
+    forceClearBtn.textContent = 'Tap again to force-clear';
+    setTimeout(() => {
+      forceClearBtn.classList.remove('confirming');
+      forceClearBtn.textContent = 'Force clear';
+    }, 3000);
+    return;
+  }
+  forceClearBtn.classList.remove('confirming');
+  forceClearBtn.textContent = 'Force clear';
+  const r = await fetch('/api/autonomy/force-clear', {method: 'POST'});
+  if (r.ok) renderAutonomyStatus(await r.json());
 });
 
 // Real bug, live (2026-09-05): this used to only connect once
