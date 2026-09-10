@@ -215,6 +215,32 @@ def test_autonomy_stop_of_nothing_running_is_a_safe_noop(client):
     assert r.status_code == 200 and r.json()["active"] is False
 
 
+def test_autonomy_force_clear_clears_a_stuck_state(client, monkeypatch):
+    """The real safety valve for exactly the live-reported symptom
+    (2026-09-10): a status bar stuck showing active with no visible
+    progress and an ordinary stop request that has no effect because
+    the underlying turn is stuck, not merely slow."""
+    monkeypatch.setenv("SEIRA_SANCTUM_RUNTIME", "hermes")
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    from seira_web import conversations as convs, autonomy
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        conv = convs.create_conversation()
+        autonomy.start(account["tenant_id"], conv["conv_id"], "exploration")
+    assert autonomy.status(account["tenant_id"])["active"] is True
+
+    r = client.post("/api/autonomy/force-clear")
+    assert r.status_code == 200
+    assert r.json()["active"] is False
+    assert autonomy.status(account["tenant_id"])["active"] is False
+
+
+def test_autonomy_force_clear_of_nothing_running_is_a_safe_noop(client):
+    r = client.post("/api/autonomy/force-clear")
+    assert r.status_code == 200 and r.json()["active"] is False
+
+
 def test_autonomy_start_accepts_all_five_modes_not_just_the_original_two(client, monkeypatch):
     """The exact live bug (2026-09-05): this route's own mode
     validation was hardcoded to the original two-mode list and never
