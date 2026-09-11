@@ -235,6 +235,61 @@ def touch(conv_id: str, maybe_title_from: Optional[str] = None) -> None:
             _save_index(index)
 
 
+def add_tags(conv_id: str, tags: List[str]) -> Optional[Dict[str, Any]]:
+    """Adds tags to a conversation — additive, never replaces existing
+    ones, since a conversation legitimately touches several subjects
+    and each deserves its own tag. Deduplicated, case-preserved as
+    given. Returns None if the conversation doesn't exist, rather than
+    raising, since this may run unattended during Recollection."""
+    with _index_lock():
+        index = _load_index()
+        if conv_id not in index:
+            return None
+        existing = index[conv_id].get("tags", [])
+        new_tags = [t.strip() for t in tags if isinstance(t, str) and t.strip()]
+        combined = existing + [t for t in new_tags if t not in existing]
+        index[conv_id]["tags"] = combined
+        _save_index(index)
+        return index[conv_id]
+
+
+def find_by_tag(tag: str) -> List[Dict[str, Any]]:
+    with _index_lock():
+        index = _load_index()
+    return sorted(
+        (c for c in index.values() if tag in c.get("tags", []) and not c.get("archived")),
+        key=lambda c: c["updated"], reverse=True,
+    )
+
+
+def list_all_tags() -> List[str]:
+    """Every distinct tag currently in use, for browsing what exists
+    before searching by one."""
+    with _index_lock():
+        index = _load_index()
+    seen = set()
+    for c in index.values():
+        seen.update(c.get("tags", []))
+    return sorted(seen)
+
+
+def mark_recollection_reviewed(conv_id: str) -> Optional[Dict[str, Any]]:
+    """Marks one specific conversation as genuinely, individually
+    reviewed during a Recollection session — deliberately per-
+    conversation, not per-session, so that if a session runs out of
+    its turn budget partway through, whatever WAS reviewed stays
+    reviewed and whatever wasn't simply carries forward to next
+    week's pass untouched. Returns None if the conversation no longer
+    exists, rather than raising, since this runs unattended."""
+    with _index_lock():
+        index = _load_index()
+        if conv_id not in index:
+            return None
+        index[conv_id]["recollection_processed_at"] = _now()
+        _save_index(index)
+        return index[conv_id]
+
+
 def _records_unlocked(conv_id: str) -> List[Dict[str, Any]]:
     p = _conv_path(conv_id)
     if not p.exists():

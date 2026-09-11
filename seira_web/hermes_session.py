@@ -259,7 +259,9 @@ def capability_block(inv: Dict[str, Any]) -> str:
 
 
 def run_housekeeping_turn(prompt: str, tenant_id: str,
-                          emit: Optional[Callable[[Dict[str, Any]], None]] = None) -> str:
+                          history: Optional[List[Dict[str, Any]]] = None,
+                          emit: Optional[Callable[[Dict[str, Any]], None]] = None
+                          ) -> Dict[str, Any]:
     """One real, fully governed turn — her real identity, her real
     tools, the real governance gate — that is deliberately NEVER saved
     as a visible sidebar conversation. Exists for background work that
@@ -273,21 +275,33 @@ def run_housekeeping_turn(prompt: str, tenant_id: str,
     Uses a synthetic session_id, never registered via
     conversations.create_conversation — nothing here ever appears in
     the sidebar, and nothing here is appended to any conversation's
-    own message history. Her actual work (renaming, summarizing) is
-    real, persisted, and visible — through the tools she calls
-    (seira_conversation_rename, seira_conversation_set_summary), which
-    write to the SAME conversation index the sidebar reads — only the
-    scaffolding turn asking her to do it is kept out of view.
+    own message history. Her actual work (renaming, summarizing,
+    tagging, writing Weekly Notes) is real, persisted, and visible —
+    through the tools she calls, which write to the same stores the
+    sidebar and other pages read — only the scaffolding turn asking
+    her to do it is kept out of view.
+
+    ``history`` accepts and returns messages (see the return dict's
+    "messages" key) specifically so a caller can chain multiple
+    housekeeping turns into one longer session — seira_web.recollection
+    does exactly this for her weekly, multi-turn Recollection practice,
+    the same "pass history forward between turns" pattern
+    run_turn_via_hermes already uses for a real conversation.
     """
     from seira_core.tenancy import tenant_scope
+    from seira_web import turn_context
 
     emit = emit or (lambda e: None)
     synthetic_session_id = f"housekeeping-{tenant_id}-{uuid.uuid4().hex[:8]}"
-    with tenant_scope(tenant_id):
+    with tenant_scope(tenant_id), turn_context.turn_scope(tenant_id, synthetic_session_id):
         agent = _build_agent(session_id=synthetic_session_id, emit=emit)
         from agent.conversation_loop import run_conversation
-        result = run_conversation(agent, user_message=prompt, conversation_history=[])
-        return result.get("final_response") or result.get("error") or ""
+        result = run_conversation(agent, user_message=prompt,
+                                  conversation_history=history or [])
+        return {
+            "reply": result.get("final_response") or result.get("error") or "",
+            "messages": result.get("messages", history or []),
+        }
 
 
 def run_turn_via_hermes(

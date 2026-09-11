@@ -794,13 +794,15 @@ def create_app(llm_client_factory=None) -> FastAPI:
     def archive_page(request: Request, account: dict = Depends(require_account)):
         """Read-only view of her live Corpus for the Architect: every
         living project (hers and requested), every document — grouped
-        and loose — and every image, exactly as she's organized them.
-        Nothing here is editable; this is a window, not a console."""
+        and loose — every image, and every conversation tag she's set
+        for herself, exactly as she's organized it. Nothing here is
+        editable; this is a window, not a console."""
         from seira_core.genesis import genesis_performed
         from seira_core.tripwire import is_halted
         from seira_web import projects as projs
         from seira_web import references as refs
         from seira_web import images as imgs
+        from seira_web import conversations as convs
 
         with tenant_scope(account["tenant_id"]):
             if not genesis_performed():
@@ -814,9 +816,11 @@ def create_app(llm_client_factory=None) -> FastAPI:
                 projects_view.append({**p, "files": projs.project_files(p["proj_id"])})
             loose = [r for r in refs.list_references() if not r.get("project")]
             image_list = imgs.list_images()
+            all_tags = convs.list_all_tags()
+            tags_view = [{"tag": t, "conversations": convs.find_by_tag(t)} for t in all_tags]
         return templates.TemplateResponse(request, "archive.html", {
             "projects": projects_view, "loose_references": loose,
-            "images": image_list,
+            "images": image_list, "tags_view": tags_view,
         })
 
     @app.get("/archive/reference/{ref_id}", response_class=HTMLResponse)
@@ -848,6 +852,68 @@ def create_app(llm_client_factory=None) -> FastAPI:
         return templates.TemplateResponse(request, "archive_reference.html", {
             "rec": rec, "text": text, "truncated": truncated,
         })
+
+    @app.get("/commands", response_class=HTMLResponse)
+    def commands_page(request: Request, account: dict = Depends(require_account)):
+        """A real, extensible page for manual operations that would
+        otherwise only ever run automatically in the background — the
+        first of these being Recollection. Per Loshem's direction
+        (2026-09-11): more of these are expected later, so this is
+        built as a genuine list of command cards, not a one-off
+        special case for just Recollection."""
+        from seira_core.tripwire import is_halted
+        with tenant_scope(account["tenant_id"]):
+            if is_halted():
+                return templates.TemplateResponse(request, "halted.html", {},
+                                                  status_code=503)
+        return templates.TemplateResponse(request, "commands.html", {})
+
+    @app.post("/api/commands/recollection/run-now")
+    def commands_recollection_run_now(account: dict = Depends(require_account)):
+        """Runs in a background thread, not inline — a real
+        Recollection session can take several turns and should never
+        hold an HTTP request open waiting for it. Returns immediately;
+        the session itself remains fully invisible, same as the
+        automatic weekly pass."""
+        import threading
+        from seira_web import recollection
+        tenant_id = account["tenant_id"]
+        threading.Thread(target=recollection.run_now, args=(tenant_id,),
+                         name="seira-recollection-manual", daemon=True).start()
+        return JSONResponse({"ok": True,
+                            "message": "Recollection started — this runs in the "
+                                      "background and isn't visible anywhere; "
+                                      "check Her Weekly Notes afterward."})
+
+    @app.post("/api/commands/recollection/run-full")
+    def commands_recollection_run_full(account: dict = Depends(require_account)):
+        """Forces every conversation to be treated as unprocessed for
+        this one run, without mutating any existing
+        recollection_processed_at data — see
+        seira_web.recollection.run_full_reprocess."""
+        import threading
+        from seira_web import recollection
+        tenant_id = account["tenant_id"]
+        threading.Thread(target=recollection.run_full_reprocess, args=(tenant_id,),
+                         name="seira-recollection-manual-full", daemon=True).start()
+        return JSONResponse({"ok": True,
+                            "message": "Full reprocess started — this treats every "
+                                      "conversation as needing review, in the "
+                                      "background, and may take a while."})
+
+    @app.get("/weekly-notes", response_class=HTMLResponse)
+    def weekly_notes_page(request: Request, account: dict = Depends(require_account)):
+        """Her Weekly Notes — read-only for the Architect, her own real
+        record of Recollection, same discipline as the Diary page."""
+        from seira_core.weekly_notes import WeeklyNotesStore
+        from seira_core.tripwire import is_halted
+        with tenant_scope(account["tenant_id"]):
+            if is_halted():
+                return templates.TemplateResponse(request, "halted.html", {},
+                                                  status_code=503)
+            entries = list(reversed(WeeklyNotesStore().entries()))
+        return templates.TemplateResponse(request, "weekly_notes.html",
+                                          {"entries": entries})
 
     @app.get("/diary", response_class=HTMLResponse)
     def diary_page(request: Request, account: dict = Depends(require_account)):
