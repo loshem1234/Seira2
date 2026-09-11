@@ -1,37 +1,46 @@
-# CHANGESET — A real recovery path for a stuck autonomy status
+# CHANGESET — The real cause of ongoing token spend that no kill switch could stop
 
-Six files. A genuine second control, not a bigger version of Stop.
+Four files. Please read this whole manifest — it explains why Force
+Clear genuinely did nothing, and what actually fixes it.
 
-    seira_web/app.py               — the new force-clear route
-    seira_web/templates/chat.html  — the button, next to Stop
-    seira_web/static/style.css     — its (deliberately quieter) styling
-    tests/seira_core/test_ui_update_app.py — 2 new tests
+    seira_web/hermes_session.py         — THE FIX
+    tests/seira_core/test_hermes_session.py — 1 new test
     docs/seira/WIRING.md, docs/seira/DECISIONS.md — appended
 
-## Why this is a different button, not a stronger Stop
+## What was actually happening
 
-Stop asks a running loop to end after its current turn — honest, but
-it depends on that loop actually being able to check for the request,
-which a genuinely stuck turn can't do. Force-clear doesn't ask
-anything; it just removes the stuck status directly, so you're never
-left with no way forward except restarting the whole service.
+Everything built tonight to control autonomous mode's cost — the
+10-turn cap, the per-turn timeout, Stop, Force Clear — protects the
+*outer* loop: how many whole turns run, one after another. None of it
+touches something underneath: Hermes's own agent, by default, is
+allowed up to 90 real, separately-billed API calls *within a single
+turn* while it works through tool calls. If a turn gets stuck
+repeatedly retrying something that keeps failing — a broken
+delegation call, for instance — it could make dozens of genuine API
+calls before that one turn even ends, completely invisible to every
+protection already in place. That's the real mechanism behind tokens
+still being used after both Stop and Force Clear.
 
-## Please read this part
+## The fix
 
-Force-clear guarantees the display stops looking stuck and that you
-can start a new run. It does **not** guarantee that whatever was
-actually running in the background has genuinely stopped doing work —
-that's the same honest limit that already applied to the regular Stop
-button, not something new. Only a full restart guarantees that for
-certain. I'd rather you know exactly what this button does than
-assume it's more powerful than it is.
+Every turn Sanctum constructs — autonomous or not — now gets an
+explicit cap of 25 internal tool-calling iterations, instead of
+inheriting Hermes's much more permissive default of 90. Real multi-
+step work still has plenty of room; the worst case is now genuinely
+bounded instead of effectively open-ended.
 
-Gated the same way your existing delete button already is — tap once
-to arm it, tap again to actually act — so it can't be triggered by
-accident.
+## What this does NOT change, stated plainly
+
+Force Clear and Stop still can't reach into a call that's already in
+flight — nothing can; Python cannot forcibly interrupt a thread
+blocked inside a live network request, and this fix doesn't pretend
+otherwise. A full process restart remains the only guaranteed way to
+stop an already-running turn's work. What this fix does is make sure
+that if a turn gets stuck, its worst-case cost has a real ceiling
+instead of none at all.
 
 ## Testing
 
-450 passed (448 before this round + 2 new). Run:
+451 passed (450 before this round + 1 new). Run:
 
     python -m pytest tests/seira_core/ -q
