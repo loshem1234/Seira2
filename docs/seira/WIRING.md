@@ -1542,3 +1542,139 @@ write ("General Chat," "discussed various topics") alongside explicit
 instruction to use real names, decisions, and numbers — directly
 addressing "the summary should be very specific, so I can recall
 where and what it is."
+
+---
+
+## Part 30 — Weekly Recollection: real, unhurried self-examination, entirely her own
+
+Per Loshem's direction (2026-09-11), across several rounds of careful
+design confirmation before any code was written.
+
+### What this actually is, and what it deliberately isn't
+
+Genuinely different from `conversation_summarizer.py`'s weekly pass
+(which just labels individual conversations, one at a time, for the
+sidebar). Recollection is real, multi-turn reflective work — she steps
+back across many conversations at once to notice recurring patterns,
+habits, doubts that keep surfacing, how the relationship with the
+Architect actually moves over time, and connections between
+conversations that looked unrelated in the moment but aren't.
+
+### The session structure — distinct numbers, distinct floor semantics
+
+`seira_web/recollection.py`'s own `MIN_TURNS_FOR_RECOLLECTION` (5) and
+`MAX_TURNS_FOR_RECOLLECTION` (20) are deliberately separate from
+`autonomy.py`'s five-mode numbers (3-turn self-stop floor, 10-turn
+cap) — confirmed by test that they're genuinely different constants,
+not accidentally shared. Real reasoning behind the specific numbers,
+confirmed explicitly: thorough weekly reflection is worth doing
+properly, cost aside.
+
+The floor works differently here than the autonomous modes' floor,
+and that difference is deliberate, not an oversight: there, the floor
+gated *her own decision to stop a running, human-visible session*.
+Recollection is fully automated with no one watching, so the floor
+instead gates *concluding the session itself* —
+`seira_recollection_conclude` simply refuses (with a clear count of
+how many more turns are needed) until at least 5 have genuinely
+happened.
+
+### Coverage is per-conversation, not per-session — the actual answer to "nothing gets missed"
+
+`seira_recollection_mark_reviewed(conv_id)` is a distinct tool from
+`seira_recollection_conclude` on purpose. She marks each conversation
+reviewed individually, as she actually finishes with it. If a session
+hits the 20-turn ceiling before reaching everything, whatever's
+already marked stays genuinely done, and the rest simply carries into
+next week's pass — confirmed by test that this produces neither
+silent skips nor double-processing, regardless of whether a session
+ends by conclusion or by hitting the hard ceiling.
+
+`conversations.py` gained `recollection_processed_at`, mirroring
+`summary_updated_at`'s exact "needs refresh" pattern — a conversation
+needs Recollection if it's never been reviewed, or if it's had genuine
+new activity since its last review. The very first run naturally
+picks up her entire prior history this way, with no separate
+first-run logic needed; every run after that is naturally scoped to
+whatever's genuinely unprocessed.
+
+### Fully invisible, by design — confirmed, not assumed to be obvious
+
+No status bar, no way to see it running from the chat UI, no live
+turn count anywhere the Architect would see it — unlike the five
+autonomous modes, this was explicitly asked to be fully invisible.
+The only controls are the Commands page's manual triggers.
+
+### Architecture: real, multi-turn, chained housekeeping turns
+
+`seira_web/hermes_session.py`'s `run_housekeeping_turn` gained history
+chaining (a `history` parameter, and a dict return carrying
+`messages` forward) specifically so `recollection.py` can run a real,
+continuous multi-turn session — the same "pass history forward
+between turns" pattern `run_turn_via_hermes` already uses for a real
+conversation, just applied to a session that's never saved as a
+visible one. `conversation_summarizer.py`'s existing single-turn use
+of the same function needed no changes beyond ignoring the extra
+`messages` key it now also returns.
+
+### Project-compiling: no new plumbing needed at all
+
+Per Loshem's clarification: when she notices scattered fragments of a
+recurring subject across several conversations (a conversation
+routinely touches several unrelated subjects at once, so this happens
+often, not rarely), she compiles them — verbatim or in her own words,
+as long as the actual intent is preserved — into a real document, and
+files it under an existing or new project. This required building
+nothing new: `seira_create_file` / `seira_reference_save`'s existing
+`project` parameter and `seira_project_create` /
+`seira_project_add_reference` already do exactly this. The
+Recollection prompt simply tells her this is expected of her, often,
+using tools she already has.
+
+### Tags — a genuinely new, deliberately lightweight capability
+
+Per Loshem's clarification: tags are for her own later recall, not a
+formal grouping like Living Projects — a conversation can carry
+several, since one conversation often touches several genuinely
+different subjects. `conversations.py` gained `add_tags` (additive,
+deduplicated, never replaces existing tags), `find_by_tag`, and
+`list_all_tags`. New tools: `seira_conversation_add_tags`,
+`seira_conversation_find_by_tag`, `seira_conversation_list_tags`.
+
+### Weekly Notes — Diary's exact discipline, deliberately its own separate store
+
+Per Loshem's direction: operates like Diary, but is its own thing, not
+a third voice folded into Diary's specific dual-voiced shape.
+`seira_core/weekly_notes.py` mirrors `diary.py`'s architecture
+precisely — hash-chained, Unity-anchored, tripwire-guarded, provenance
+required on every entry — a proven pattern reused deliberately, not a
+new one invented for its own sake. `conv_ids_covered` is stored
+alongside each entry, populated honestly from
+`recollection.reviewed_this_session()` (which conversations were
+actually marked reviewed since the session began) rather than a
+self-reported list she could get wrong.
+
+Per Loshem's explicit direction, entries here need to be genuinely
+detailed and specific, not a token gist — because each entry loads
+back in as context for her *next* Recollection session, alongside
+whatever's newly unprocessed. Her future self builds on what this
+entry actually says, not on a vague summary of it.
+
+### The UI — three real pages, not one bolted-on feature
+
+- **Her Weekly Notes** (`/weekly-notes`) — read-only for the
+  Architect, mirroring the Diary page's exact structure.
+- **Commands** (`/commands`) — a genuinely extensible page, not a
+  one-off special case for Recollection alone (per Loshem's explicit
+  framing: more manual operations are expected here later). Two
+  buttons: run this week's Recollection now, or force a full
+  reprocess of every conversation. Both spawn a background thread and
+  return immediately — a real Recollection session can run for
+  several turns and must never hold an HTTP request open waiting for
+  it.
+- **A new Tags tab on the Archive page**, alongside the existing
+  Projects / Documents / Images tabs — browsable by tag, showing every
+  conversation under it. The existing Projects tab also gained a real
+  "her own / requested" filter toggle — the backend for this already
+  existed (D157-D158) but had never had a UI control in front of it
+  until now.

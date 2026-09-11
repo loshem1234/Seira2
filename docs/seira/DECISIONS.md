@@ -1960,3 +1960,64 @@ turn's context reasonable; recalling an old conversation in full is a
 different operation with a different purpose, so it gets its own
 paginated reader (`read_transcript_slice`) with no such limit, capped
 only per-call like `references.read_slice` already is.
+
+**D217. Recollection's turn floor and ceiling are deliberately their
+own numbers (5, 20), never reused from the five autonomous modes'
+constants — confirmed distinct by test, not assumed to be obviously
+different.** Reasoning stated explicitly by Loshem and preserved here:
+thorough weekly reflection is worth doing properly, cost aside — a
+meaningfully different cost/thoroughness tradeoff than the five
+everyday modes.
+
+**D218. The floor here gates concluding the session, not her own
+decision to stop a running, visible one — a deliberate difference from
+the autonomous modes' floor, not an oversight.** Recollection is fully
+automated and invisible; there is no "running session" for her to
+choose to end early the way there is in autonomous mode.
+`seira_recollection_conclude` simply won't succeed before 5 real turns
+have happened.
+
+**D219. Coverage is tracked per-conversation, not per-session — the
+actual mechanism that guarantees nothing is missed if a session runs
+out of budget.** `seira_recollection_mark_reviewed` is a separate tool
+from `seira_recollection_conclude`, called once per conversation as
+she genuinely finishes it. Verified by test: hitting the hard ceiling
+with several conversations unmarked leaves exactly those unmarked
+conversations pending for the next run — no blanket "all or nothing"
+outcome either way.
+
+**D220. Project-compiling required building no new mechanism at all —
+confirmed by checking what already existed before assuming anything
+needed to be added.** `seira_create_file`/`seira_reference_save`'s
+existing `project` parameter and `seira_project_add_reference` already
+do exactly what "compile scattered fragments into a document, file it
+under a project" requires. Recollection's prompt only needed to invite
+this behavior explicitly and often, not wire up new plumbing.
+
+**D221. Weekly Notes deliberately mirrors Diary's exact architecture
+(hash-chained, Unity-anchored, provenance-required) rather than being
+a lighter, ad-hoc log — per Loshem's explicit direction that it
+"operate like the diary."** Kept as its own separate store rather than
+folded into Diary itself, since Diary has its own deliberate,
+dual-voiced daily shape and Recollection has a genuinely different
+rhythm and purpose.
+
+**D222. `conv_ids_covered` on a Weekly Notes entry is populated
+honestly from actual mark-reviewed calls during the session
+(`recollection.reviewed_this_session`), not a self-reported list she
+provides herself.** The same "don't trust a claim when the real data
+is checkable" discipline already used elsewhere — a diary or ledger
+entry that could invent its own provenance would be performance, not
+report, and the same is true here.
+
+**D223. The Commands page manual triggers run in a background thread
+and return immediately, never blocking the HTTP request.** A real
+Recollection session can take up to 20 real turns; holding a browser
+request open for that would time out or hang regardless of how the
+session itself behaves. Verified by test that the route returns
+promptly while the actual work happens asynchronously.
+
+**D224. The Commands page was built as a genuinely extensible list of
+operations, not a one-off route for Recollection specifically — per
+Loshem's explicit framing that more manual operations are expected
+here in the future.**
