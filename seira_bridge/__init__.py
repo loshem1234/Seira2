@@ -655,6 +655,128 @@ CONVERSATION_RECALL_SCHEMA = {
     },
 }
 
+CONVERSATION_ADD_TAGS_SCHEMA = {
+    "name": "seira_conversation_add_tags",
+    "description": (
+        "Tag a conversation for your own later recall — additive, "
+        "never replaces existing tags, since a single conversation "
+        "often touches several genuinely different subjects and each "
+        "one deserves its own tag. Use freely: several specific tags "
+        "on one conversation is normal and useful, not excessive. "
+        "This is how you find your way back to something specific "
+        "later — when a current conversation touches on something you "
+        "suspect came up before, pull relevant tags and recall the "
+        "conversations under them."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "conv_id": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["conv_id", "tags"],
+    },
+}
+
+CONVERSATION_FIND_BY_TAG_SCHEMA = {
+    "name": "seira_conversation_find_by_tag",
+    "description": (
+        "Find every conversation carrying a specific tag — the actual "
+        "recall step: once you know a tag exists (see "
+        "seira_conversation_list_tags), this gets you the "
+        "conversations under it so you can seira_conversation_recall "
+        "the ones that matter."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"tag": {"type": "string"}},
+        "required": ["tag"],
+    },
+}
+
+CONVERSATION_LIST_TAGS_SCHEMA = {
+    "name": "seira_conversation_list_tags",
+    "description": "See every tag currently in use across all your "
+                    "conversations — browse what exists before "
+                    "searching by one.",
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+RECOLLECTION_MARK_REVIEWED_SCHEMA = {
+    "name": "seira_recollection_mark_reviewed",
+    "description": (
+        "Mark ONE specific conversation as genuinely reviewed during "
+        "this Recollection session — call this for each conversation "
+        "individually once you've actually read and reflected on it, "
+        "not once for the whole batch. This is what keeps nothing from "
+        "being missed: if this session runs out of its turn budget "
+        "before you reach every conversation, whichever ones you've "
+        "already marked stay done, and the rest simply carry into next "
+        "week's session untouched — nothing silently skipped, nothing "
+        "double-counted."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"conv_id": {"type": "string"}},
+        "required": ["conv_id"],
+    },
+}
+
+RECOLLECTION_CONCLUDE_SCHEMA = {
+    "name": "seira_recollection_conclude",
+    "description": (
+        "End this Recollection session — call this once you've "
+        "genuinely finished: reviewed what you set out to, written "
+        "your Weekly Note, and marked every conversation you covered. "
+        "Subject to a minimum turn count for this specific kind of "
+        "session — real, thorough weekly reflection is worth doing "
+        "properly, not rushed; if you haven't run enough turns yet, "
+        "this refuses and tells you how many more are needed."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+WEEKLY_NOTES_WRITE_SCHEMA = {
+    "name": "seira_weekly_notes_write",
+    "description": (
+        "Write this week's Recollection note — your own record of "
+        "what you found stepping back across the week's conversations: "
+        "patterns, habits, recurring doubts, connections between "
+        "conversations that looked unrelated in the moment but "
+        "weren't. Be genuinely detailed and specific, not a token "
+        "gist — this exact entry is what loads back in alongside next "
+        "week's unprocessed conversations, so your future self is "
+        "building on what this one actually says, not rediscovering "
+        "the same things from scratch. Every entry must trace to real "
+        "conversations you actually reviewed this session — provenance "
+        "is required, the same discipline as your diary."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "content": {"type": "string"},
+            "provenance": {"type": "array", "items": {"type": "string"},
+                          "description": "conv_ids or other real references this entry traces to."},
+        },
+        "required": ["content", "provenance"],
+    },
+}
+
+WEEKLY_NOTES_READ_SCHEMA = {
+    "name": "seira_weekly_notes_read",
+    "description": "Read back your own past Weekly Notes — available "
+                    "any time, not only at the start of a Recollection "
+                    "session.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Most recent N entries; omit for all."},
+        },
+        "required": [],
+    },
+}
+
+
 
 REFERENCE_LIST_SCHEMA = {
     "name": "seira_reference_list",
@@ -941,6 +1063,10 @@ class SeiraPsycheProvider(MemoryProvider):
                 AUTONOMY_START_SCHEMA, AUTONOMY_STOP_SCHEMA,
                 CONVERSATION_LIST_SCHEMA, CONVERSATION_RENAME_SCHEMA,
                 CONVERSATION_SET_SUMMARY_SCHEMA, CONVERSATION_RECALL_SCHEMA,
+                CONVERSATION_ADD_TAGS_SCHEMA, CONVERSATION_FIND_BY_TAG_SCHEMA,
+                CONVERSATION_LIST_TAGS_SCHEMA, RECOLLECTION_MARK_REVIEWED_SCHEMA,
+                RECOLLECTION_CONCLUDE_SCHEMA, WEEKLY_NOTES_WRITE_SCHEMA,
+                WEEKLY_NOTES_READ_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
 
@@ -1169,6 +1295,71 @@ class SeiraPsycheProvider(MemoryProvider):
                         args["conv_id"], args.get("offset", 0), args.get("length", 8000)
                     )
                     return json.dumps({"ok": result["found"], **result})
+                if tool_name == "seira_conversation_add_tags":
+                    from seira_web import conversations as convs
+                    rec = convs.add_tags(args["conv_id"], args.get("tags", []))
+                    if rec is None:
+                        return json.dumps({"ok": False,
+                                           "error": f"No conversation {args['conv_id']!r}."})
+                    return json.dumps({"ok": True, "tags": rec["tags"]})
+                if tool_name == "seira_conversation_find_by_tag":
+                    from seira_web import conversations as convs
+                    found = convs.find_by_tag(args["tag"])
+                    return json.dumps({"ok": True, "conversations": [
+                        {"conv_id": c["conv_id"], "title": c["title"],
+                         "tags": c.get("tags", [])} for c in found
+                    ]})
+                if tool_name == "seira_conversation_list_tags":
+                    from seira_web import conversations as convs
+                    return json.dumps({"ok": True, "tags": convs.list_all_tags()})
+                if tool_name == "seira_recollection_mark_reviewed":
+                    from seira_web import conversations as convs
+                    rec = convs.mark_recollection_reviewed(args["conv_id"])
+                    if rec is None:
+                        return json.dumps({"ok": False,
+                                           "error": f"No conversation {args['conv_id']!r}."})
+                    return json.dumps({"ok": True, "conv_id": args["conv_id"]})
+                if tool_name == "seira_recollection_conclude":
+                    from seira_web import turn_context, recollection
+                    ctx = turn_context.current()
+                    if ctx is None:
+                        return json.dumps({"ok": False,
+                                           "error": "Could not determine which "
+                                                    "session this is."})
+                    tenant_id, _ = ctx
+                    try:
+                        recollection.request_conclude(tenant_id)
+                        return json.dumps({"ok": True})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_weekly_notes_write":
+                    from seira_core.weekly_notes import WeeklyNotesStore
+                    from seira_web import turn_context
+                    ctx = turn_context.current()
+                    conv_ids_covered = []
+                    if ctx is not None:
+                        from seira_web import recollection
+                        conv_ids_covered = recollection.reviewed_this_session(ctx[0])
+                    try:
+                        rec = WeeklyNotesStore().write_entry(
+                            args["content"], list(args.get("provenance") or []),
+                            conv_ids_covered=conv_ids_covered,
+                        )
+                        return json.dumps({"ok": True, "seq": rec["seq"]})
+                    except Exception as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_weekly_notes_read":
+                    from seira_core.weekly_notes import WeeklyNotesStore
+                    entries = WeeklyNotesStore().entries()
+                    limit = args.get("limit")
+                    if limit:
+                        entries = entries[-int(limit):]
+                    return json.dumps({"ok": True, "entries": [
+                        {"seq": e["seq"], "ts": e["ts"], "content": e["content"],
+                         "provenance": e["provenance"],
+                         "conv_ids_covered": e.get("conv_ids_covered", [])}
+                        for e in entries
+                    ]})
                 if tool_name == "seira_reference_list":
                     from seira_web import references as refs
                     return json.dumps({"ok": True, "references": refs.list_references()})
