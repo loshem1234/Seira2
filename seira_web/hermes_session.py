@@ -68,6 +68,19 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 SEIRA_MODEL = os.environ.get("SEIRA_MODEL", "claude-sonnet-5")
+# Real, live gap found (2026-09-10): AIAgent's own default is 90 tool-
+# calling iterations PER TURN — meaning a single turn that gets stuck
+# (e.g. repeatedly retrying a failing delegate_task call) could make
+# up to 90 real, separate, billed API calls before that one turn even
+# ends, regardless of any outer turn-count cap (autonomy.MAX_TURNS_PER_RUN
+# counts whole turns, not the API calls happening inside one). This is
+# the actual mechanism behind a live-reported symptom: real, ongoing
+# token spend that neither the ordinary stop nor a force-clear of the
+# status display could touch, since both operate on the OUTER loop, not
+# this inner one. 25 is generous for legitimate multi-step work (a few
+# tool calls, a delegation, a follow-up) while genuinely bounding the
+# worst case, rather than 90's effectively-unbounded default.
+SEIRA_MAX_TOOL_ITERATIONS = int(os.environ.get("SEIRA_MAX_TOOL_ITERATIONS", "25"))
 
 
 def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
@@ -169,6 +182,7 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
         load_soul_identity=True,   # her real identity, verified, halt-aware
         skip_memory=False,         # config-driven: loads memory.provider from config.yaml
         skip_context_files=True,   # a web chat has no project cwd to layer in
+        max_iterations=SEIRA_MAX_TOOL_ITERATIONS,
         tool_start_callback=_tool_start,
         tool_complete_callback=_tool_complete,
         reasoning_callback=_reasoning,
