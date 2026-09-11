@@ -68,19 +68,6 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 SEIRA_MODEL = os.environ.get("SEIRA_MODEL", "claude-sonnet-5")
-# Real, live gap found (2026-09-10): AIAgent's own default is 90 tool-
-# calling iterations PER TURN — meaning a single turn that gets stuck
-# (e.g. repeatedly retrying a failing delegate_task call) could make
-# up to 90 real, separate, billed API calls before that one turn even
-# ends, regardless of any outer turn-count cap (autonomy.MAX_TURNS_PER_RUN
-# counts whole turns, not the API calls happening inside one). This is
-# the actual mechanism behind a live-reported symptom: real, ongoing
-# token spend that neither the ordinary stop nor a force-clear of the
-# status display could touch, since both operate on the OUTER loop, not
-# this inner one. 25 is generous for legitimate multi-step work (a few
-# tool calls, a delegation, a follow-up) while genuinely bounding the
-# worst case, rather than 90's effectively-unbounded default.
-SEIRA_MAX_TOOL_ITERATIONS = int(os.environ.get("SEIRA_MAX_TOOL_ITERATIONS", "25"))
 
 
 def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
@@ -182,7 +169,6 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
         load_soul_identity=True,   # her real identity, verified, halt-aware
         skip_memory=False,         # config-driven: loads memory.provider from config.yaml
         skip_context_files=True,   # a web chat has no project cwd to layer in
-        max_iterations=SEIRA_MAX_TOOL_ITERATIONS,
         tool_start_callback=_tool_start,
         tool_complete_callback=_tool_complete,
         reasoning_callback=_reasoning,
@@ -270,6 +256,38 @@ def capability_block(inv: Dict[str, Any]) -> str:
         "Architect). What you do have, use deliberately in service of the "
         "work, under your Constitution as always."
     )
+
+
+def run_housekeeping_turn(prompt: str, tenant_id: str,
+                          emit: Optional[Callable[[Dict[str, Any]], None]] = None) -> str:
+    """One real, fully governed turn — her real identity, her real
+    tools, the real governance gate — that is deliberately NEVER saved
+    as a visible sidebar conversation. Exists for background work that
+    is genuinely hers to do (per Loshem's direction, 2026-09-11: she
+    should be the one renaming and summarizing her own conversations,
+    not a silent, tool-free system completion) but that must not
+    pollute the conversation being labeled with an unrelated "let me
+    rename this" exchange in the middle of whatever was actually being
+    discussed there.
+
+    Uses a synthetic session_id, never registered via
+    conversations.create_conversation — nothing here ever appears in
+    the sidebar, and nothing here is appended to any conversation's
+    own message history. Her actual work (renaming, summarizing) is
+    real, persisted, and visible — through the tools she calls
+    (seira_conversation_rename, seira_conversation_set_summary), which
+    write to the SAME conversation index the sidebar reads — only the
+    scaffolding turn asking her to do it is kept out of view.
+    """
+    from seira_core.tenancy import tenant_scope
+
+    emit = emit or (lambda e: None)
+    synthetic_session_id = f"housekeeping-{tenant_id}-{uuid.uuid4().hex[:8]}"
+    with tenant_scope(tenant_id):
+        agent = _build_agent(session_id=synthetic_session_id, emit=emit)
+        from agent.conversation_loop import run_conversation
+        result = run_conversation(agent, user_message=prompt, conversation_history=[])
+        return result.get("final_response") or result.get("error") or ""
 
 
 def run_turn_via_hermes(

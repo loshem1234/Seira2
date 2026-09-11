@@ -1,34 +1,35 @@
-"""seira_web.conversation_summarizer — keeps every conversation's
-sidebar entry meaningfully labeled on its own, so Loshem can always
-tell what and where a conversation actually is without opening it.
+"""seira_web.conversation_summarizer — she keeps her own conversation
+history labeled, so Loshem can always tell what and where the chats
+are.
 
-Per Loshem's direction (2026-09-07): a short, auto-updated title and
-a handful of bullet points per conversation, refreshed roughly daily
-— but only for conversations that actually had new activity since
-their last summary, not on a blind schedule that would waste real
-cost re-summarizing conversations nobody touched.
+Per Loshem's direction (2026-09-07, refined 2026-09-11): a genuine
+weekly pass over conversations that had real activity since their
+last summary — but the renaming and summarizing is hers to do, not a
+silent, tool-free system completion. She reads the conversation
+herself and calls seira_conversation_rename /
+seira_conversation_set_summary using her own judgment about what's
+actually specific and memorable, the same way any other tool-driven
+work is hers.
 
-Deliberately a plain, tool-free text completion (seira_web.chat's
-existing AnthropicClient), not a real Hermes agent turn — this isn't
-her acting or speaking; it's a lightweight, system-level utility
-labeling conversations for a sidebar, the same category of thing as
-an auto-generated commit message, not a turn that needs her Psyche,
-her tools, or the delegation/autonomy governance machinery. Genuinely
-cheap: small max_tokens, no tool schemas, one short call per
-conversation that actually needs refreshing.
+Runs through seira_web.hermes_session.run_housekeeping_turn — a real,
+fully governed turn (her identity, her tools, the real governance
+gate) that is deliberately never saved as a visible sidebar
+conversation, so a "let me rename this" exchange never pollutes the
+actual conversation being labeled. Her real work — the rename, the
+summary — is genuinely persisted and visible, through the tools she
+calls, which write to the same conversation index the sidebar reads;
+only the scaffolding turn asking her to do it stays out of view.
 
-A title the Architect has explicitly set (via the rename button) is
-never overwritten — see conversations.auto_update_title_and_summary.
-Bullets always refresh regardless, since they describe content, not
-something anyone would "rename".
+A title the Architect has explicitly set (via the rename button, or
+by her own seira_conversation_rename call at his request) is never
+overwritten — see conversations.auto_update_title_and_summary.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,96 +38,71 @@ _thread: Optional[threading.Thread] = None
 
 # A conversation with less than this many real turns rarely has
 # anything meaningful to summarize yet — skip it rather than spend a
-# real API call on "just started talking."
+# real turn on "just started talking."
 MIN_TURNS_TO_SUMMARIZE = 2
 
-_SYSTEM_PROMPT = (
-    "You label chat conversations for a sidebar. Given a conversation's "
-    "messages, respond with ONLY a JSON object, no markdown fences, no "
-    "commentary: "
-    '{"title": "a short, specific 4-8 word title", '
-    '"bullets": ["a short specific point", "another one", ...]}. '
-    "2 to 4 bullets, each under 12 words, each naming something concrete "
-    "actually discussed — not generic descriptions like 'general chat'. "
-    "The title should let someone recognize this conversation at a "
-    "glance among many others, not describe the app itself."
+_HOUSEKEEPING_PROMPT_TEMPLATE = (
+    "[Housekeeping — not shown to the Architect as a conversation of "
+    "its own] One of your conversations needs a title and summary "
+    "refresh. This is genuinely yours to do — read it and use your "
+    "own judgment, the same as any other tool-driven work.\n\n"
+    "Conversation id: {conv_id}\n\n"
+    "Transcript:\n{transcript}\n\n"
+    "Call seira_conversation_rename with a short, SPECIFIC title (4-8 "
+    "words) that names the actual thing discussed — a project name, a "
+    "decision, a concrete topic — precise enough to recognize this "
+    "conversation among many others at a glance. Not a generic "
+    "description like 'General Chat' or 'Technical Discussion'.\n\n"
+    "Then call seira_conversation_set_summary with 2-4 bullets, each "
+    "naming something concrete and specific enough that reading it "
+    "tells you exactly WHERE and WHAT this conversation was about — "
+    "real names, real decisions, real numbers where they exist. Not "
+    "'discussed various topics' or 'talked about the project.'\n\n"
+    "If the title the Architect already set was chosen by him "
+    "directly, seira_conversation_rename will refuse to overwrite it — "
+    "that's expected; call seira_conversation_set_summary regardless, "
+    "since the summary always refreshes."
 )
 
 
-def _build_transcript_text(history: List[Dict[str, str]], max_chars: int = 12_000) -> str:
-    """A plain-text rendering of the conversation for the summarizer
-    prompt — bounded, since this is a labeling task, not a task that
-    needs the full transcript verbatim. Takes the most RECENT content
-    up to the bound, since that's most representative of where the
+def _build_transcript_text(text: str, max_chars: int = 12_000) -> str:
+    """Bounded, since this is a labeling task, not a task that needs
+    the full transcript verbatim. Takes the most RECENT content up to
+    the bound, since that's most representative of where the
     conversation actually is now."""
-    lines = []
-    for m in history:
-        role = "Architect" if m.get("role") == "user" else "Seira"
-        content = m.get("content", "")
-        if isinstance(content, str):
-            lines.append(f"{role}: {content}")
-    text = "\n\n".join(lines)
     if len(text) > max_chars:
-        text = "...\n" + text[-max_chars:]
+        return "...\n" + text[-max_chars:]
     return text
 
 
-def _parse_summary_response(raw: str) -> Optional[Tuple[str, List[str]]]:
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
-    try:
-        data = json.loads(cleaned)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    title = data.get("title")
-    bullets = data.get("bullets")
-    if not isinstance(title, str) or not isinstance(bullets, list):
-        return None
-    bullets = [b for b in bullets if isinstance(b, str) and b.strip()][:6]
-    return title.strip(), bullets
-
-
-def summarize_one(conv_id: str) -> bool:
-    """Summarize a single conversation and store the result. Returns
-    True if a summary was written, False if skipped or failed — never
-    raises, since this runs unattended in a background loop."""
+def summarize_one(conv_id: str, tenant_id: str) -> bool:
+    """Gives HER one real, tool-enabled turn to rename and summarize
+    this conversation herself. Returns True if the housekeeping turn
+    ran (regardless of whether she actually called both tools — that's
+    her judgment to make), False if skipped for having too little
+    content yet. Never raises — this runs unattended in a background
+    loop."""
     from seira_web import conversations as convs
-    from seira_web.chat import AnthropicClient
+    from seira_web.hermes_session import run_housekeeping_turn
 
     history = convs.model_history(conv_id)
     if len([m for m in history if m.get("role") == "user"]) < MIN_TURNS_TO_SUMMARIZE:
         return False
 
-    transcript = _build_transcript_text(history)
-    if not transcript.strip():
+    slice_result = convs.read_transcript_slice(conv_id, 0, 40_000)
+    if not slice_result.get("found") or not slice_result.get("text", "").strip():
         return False
+
+    transcript = _build_transcript_text(slice_result["text"])
+    prompt = _HOUSEKEEPING_PROMPT_TEMPLATE.format(conv_id=conv_id, transcript=transcript)
 
     try:
-        client = AnthropicClient(max_tokens=300)
-        resp = client.complete(_SYSTEM_PROMPT,
-                               [{"role": "user", "content": transcript}], [])
-        blocks = resp.get("content", [])
-        raw_text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+        run_housekeeping_turn(prompt, tenant_id)
     except Exception as e:
-        logger.warning("Conversation summarizer: completion failed for %s: %s",
-                       conv_id, e)
+        logger.warning("Conversation summarizer: housekeeping turn failed "
+                       "for %s: %s", conv_id, e)
         return False
-
-    parsed = _parse_summary_response(raw_text)
-    if parsed is None:
-        logger.warning("Conversation summarizer: could not parse response "
-                       "for %s: %r", conv_id, raw_text[:200])
-        return False
-
-    title, bullets = parsed
-    rec = convs.auto_update_title_and_summary(conv_id, title, bullets)
-    return rec is not None
+    return True
 
 
 def _needs_refresh(rec: Dict[str, Any]) -> bool:
@@ -148,8 +124,7 @@ def _run_pass_for_tenant(tenant_id: str) -> None:
         if _stop_event is not None and _stop_event.is_set():
             return
         try:
-            with tenant_scope(tenant_id):
-                summarize_one(rec["conv_id"])
+            summarize_one(rec["conv_id"], tenant_id)
         except Exception:
             logger.error("Conversation summarizer: pass failed for %s/%s",
                         tenant_id, rec["conv_id"], exc_info=True)
@@ -169,11 +144,12 @@ def _loop(interval: float) -> None:
         _stop_event.wait(interval)
 
 
-def start_background_summarizer(interval: float = 86_400) -> None:
-    """Default interval is once a day, per Loshem's direction — but
-    only conversations with genuinely new activity since their last
-    summary are actually re-summarized on each pass; an untouched
-    conversation costs nothing on a given day."""
+def start_background_summarizer(interval: float = 604_800) -> None:
+    """Default interval is once a week, per Loshem's direction
+    (2026-09-11, revised from an original daily default) — but only
+    conversations with genuinely new activity since their last summary
+    are actually re-summarized on a given pass; an untouched
+    conversation costs nothing."""
     global _stop_event, _thread
     if _thread is not None and _thread.is_alive():
         return

@@ -85,17 +85,59 @@ def _conversation_lock(conv_id: str):
             fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
+@contextlib.contextmanager
+def _index_lock():
+    """Exclusive lock spanning an entire read, or an entire
+    read-modify-write, on the shared conversation index.
+
+    Real, live bug (2026-09-11), found directly after Loshem reported
+    the autonomy status bar getting stuck with no turn count and Stop
+    appearing to do nothing: the SAME class of race _conversation_lock
+    already fixed for each conversation's own message file, but this
+    time on index.json — which was never protected at all. touch(),
+    called by the autonomy loop after every single turn, and
+    conversation_summarizer.py's auto_update_title_and_summary(),
+    called from its own background thread, both do the identical
+    unprotected read-modify-write on the SAME shared file. Before this
+    fix, the summarizer was the first feature to write to index.json
+    regularly from a background thread at the same time the autonomy
+    loop's own writes could be happening — reproduced directly: 464
+    errors (JSONDecodeError and a genuine FileNotFoundError from two
+    writes racing os.replace) out of a realistic concurrent test.
+    A corrupted index.json breaks list_conversations() outright, which
+    /api/autonomy/status calls (to show which conversation is
+    running) — so the status poll itself would fail silently,
+    explaining the stuck display precisely: not that Stop did nothing,
+    but that the display never learned it had worked.
+    """
+    _conv_dir().mkdir(parents=True, exist_ok=True)
+    lock_path = _index_path().with_suffix(".lock")
+    with open(lock_path, "a+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
 def _load_index() -> Dict[str, Dict[str, Any]]:
+    """Unlocked — every caller in this module acquires _index_lock()
+    itself, once, before calling this; never call this directly from
+    outside an already-held lock (see the deadlock note on
+    conversations._records_unlocked for why: fcntl.flock is not
+    reentrant across separate open() calls, even from the same
+    thread)."""
     if not _index_path().exists():
         return {}
     return json.loads(_index_path().read_text(encoding="utf-8"))
 
 
 def _save_index(index: Dict[str, Dict[str, Any]]) -> None:
+    """Unlocked — see _load_index's note; callers hold _index_lock()."""
     _conv_dir().mkdir(parents=True, exist_ok=True)
     tmp = _index_path().with_suffix(".tmp")
     tmp.write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -105,16 +147,17 @@ def _save_index(index: Dict[str, Dict[str, Any]]) -> None:
 def rename_conversation(conv_id: str, new_title: str) -> Dict[str, Any]:
     if not new_title.strip():
         raise ValueError("Title must not be empty.")
-    index = _load_index()
-    if conv_id not in index:
-        raise ValueError(f"No conversation {conv_id!r}.")
-    index[conv_id]["title"] = new_title.strip()[:80]
-    # A title someone chose themselves is never overwritten by the
-    # background auto-namer — see conversation_summarizer.py.
-    index[conv_id]["title_user_set"] = True
-    index[conv_id]["updated"] = _now()
-    _save_index(index)
-    return index[conv_id]
+    with _index_lock():
+        index = _load_index()
+        if conv_id not in index:
+            raise ValueError(f"No conversation {conv_id!r}.")
+        index[conv_id]["title"] = new_title.strip()[:80]
+        # A title someone chose themselves is never overwritten by the
+        # background auto-namer — see conversation_summarizer.py.
+        index[conv_id]["title_user_set"] = True
+        index[conv_id]["updated"] = _now()
+        _save_index(index)
+        return index[conv_id]
 
 
 def auto_update_title_and_summary(conv_id: str, title: Optional[str],
@@ -127,18 +170,19 @@ def auto_update_title_and_summary(conv_id: str, title: Optional[str],
     something anyone would "rename". Returns None if the conversation
     no longer exists (deleted between listing and processing) rather
     than raising, since this runs unattended in the background."""
-    index = _load_index()
-    if conv_id not in index:
-        return None
-    if title and not index[conv_id].get("title_user_set"):
-        index[conv_id]["title"] = title.strip()[:80]
-    index[conv_id]["summary_bullets"] = bullets[:6]
-    index[conv_id]["summary_updated_at"] = _now()
-    # Deliberately NOT touching "updated" here — a background summary
-    # refresh must never bump a conversation to the top of a
-    # most-recently-updated sidebar; only real activity should do that.
-    _save_index(index)
-    return index[conv_id]
+    with _index_lock():
+        index = _load_index()
+        if conv_id not in index:
+            return None
+        if title and not index[conv_id].get("title_user_set"):
+            index[conv_id]["title"] = title.strip()[:80]
+        index[conv_id]["summary_bullets"] = bullets[:6]
+        index[conv_id]["summary_updated_at"] = _now()
+        # Deliberately NOT touching "updated" here — a background summary
+        # refresh must never bump a conversation to the top of a
+        # most-recently-updated sidebar; only real activity should do that.
+        _save_index(index)
+        return index[conv_id]
 
 
 def archive_conversation(conv_id: str) -> Dict[str, Any]:
@@ -147,17 +191,19 @@ def archive_conversation(conv_id: str) -> Dict[str, Any]:
     her Corpus doesn't lose real history because a UI trash icon was
     clicked; it stops being shown, which is what 'delete' actually
     means to the person using the sidebar."""
-    index = _load_index()
-    if conv_id not in index:
-        raise ValueError(f"No conversation {conv_id!r}.")
-    index[conv_id]["archived"] = True
-    index[conv_id]["archived_at"] = _now()
-    _save_index(index)
-    return index[conv_id]
+    with _index_lock():
+        index = _load_index()
+        if conv_id not in index:
+            raise ValueError(f"No conversation {conv_id!r}.")
+        index[conv_id]["archived"] = True
+        index[conv_id]["archived_at"] = _now()
+        _save_index(index)
+        return index[conv_id]
 
 
 def list_conversations(include_archived: bool = False) -> List[Dict[str, Any]]:
-    index = _load_index()
+    with _index_lock():
+        index = _load_index()
     convs = index.values()
     if not include_archived:
         convs = [c for c in convs if not c.get("archived")]
@@ -165,26 +211,28 @@ def list_conversations(include_archived: bool = False) -> List[Dict[str, Any]]:
 
 
 def create_conversation(title: str = "New conversation") -> Dict[str, Any]:
-    index = _load_index()
-    conv_id = f"c-{secrets.token_hex(6)}"
-    index[conv_id] = {
-        "conv_id": conv_id,
-        "title": (title or "New conversation")[:80],
-        "created": _now(),
-        "updated": _now(),
-    }
-    _save_index(index)
+    with _index_lock():
+        index = _load_index()
+        conv_id = f"c-{secrets.token_hex(6)}"
+        index[conv_id] = {
+            "conv_id": conv_id,
+            "title": (title or "New conversation")[:80],
+            "created": _now(),
+            "updated": _now(),
+        }
+        _save_index(index)
     _conv_path(conv_id).touch()
     return index[conv_id]
 
 
 def touch(conv_id: str, maybe_title_from: Optional[str] = None) -> None:
-    index = _load_index()
-    if conv_id in index:
-        index[conv_id]["updated"] = _now()
-        if maybe_title_from and index[conv_id]["title"] == "New conversation":
-            index[conv_id]["title"] = maybe_title_from.strip()[:80]
-        _save_index(index)
+    with _index_lock():
+        index = _load_index()
+        if conv_id in index:
+            index[conv_id]["updated"] = _now()
+            if maybe_title_from and index[conv_id]["title"] == "New conversation":
+                index[conv_id]["title"] = maybe_title_from.strip()[:80]
+            _save_index(index)
 
 
 def _records_unlocked(conv_id: str) -> List[Dict[str, Any]]:
@@ -275,6 +323,36 @@ def model_history(conv_id: str, limit_turns: int = 30) -> List[Dict[str, str]]:
             text = f"{marker}\n{text}".strip() if text.strip() else marker
         msgs.append({"role": r["kind"], "content": text})
     return msgs[-limit_turns * 2:]
+
+
+def read_transcript_slice(conv_id: str, offset: int = 0,
+                          length: int = 8000) -> Dict[str, Any]:
+    """Page through a WHOLE past conversation's transcript — deliberately
+    not capped to the last 30 turns the way model_history() is, since
+    this exists specifically for revisiting an old conversation in
+    full, not for feeding the live thread into a new turn. Same
+    pagination discipline as references.read_slice(): never raises for
+    an unknown conv_id, always says plainly what it found."""
+    if conv_id not in {c["conv_id"] for c in list_conversations(include_archived=True)}:
+        return {"found": False, "error": f"No conversation matching {conv_id!r}."}
+    lines = []
+    for r in _live_records(conv_id):
+        if r["kind"] not in ("user", "assistant"):
+            continue
+        text = (r.get("text") or "").strip()
+        if not text:
+            continue
+        role = "Architect" if r["kind"] == "user" else "Seira"
+        lines.append(f"{role}: {text}")
+    full_text = "\n\n".join(lines)
+    offset = max(0, int(offset))
+    length = max(1, min(int(length), 40_000))
+    chunk = full_text[offset:offset + length]
+    return {
+        "found": True, "conv_id": conv_id, "offset": offset,
+        "length": len(chunk), "total_length": len(full_text),
+        "text": chunk, "has_more": offset + len(chunk) < len(full_text),
+    }
 
 
 def display_records(conv_id: str) -> List[Dict[str, Any]]:
