@@ -1436,3 +1436,109 @@ the only way to guarantee an already-running turn's work has actually
 stopped; this fix doesn't change that limitation, it prevents the
 worst-case cost of a single stuck turn from being unbounded in the
 first place.
+
+---
+
+## Part 28 — The real cause: index.json was never protected, and the summarizer was the first thing to actually expose it
+
+Reported live (2026-09-11), and Loshem correctly identified the timing
+himself: "after we did the conversation history summary it has changed
+that." He was right, and the reasoning holds up under direct
+reproduction, not just correlation.
+
+**What was actually missing.** Part 21 fixed the exact same class of
+race for each conversation's own message file — but never extended
+the same protection to `index.json`, the shared file holding every
+conversation's title, `updated` timestamp, and (now) summary bullets.
+Before the summarizer existed, only user-initiated requests ever wrote
+to it — one at a time, rarely overlapping. The summarizer was the
+first feature to write to it regularly from its own background
+thread, at the same time the autonomy loop's own `touch()` call (fired
+after every single turn) could be writing to it too.
+
+**Reproduced directly, the same discipline as every other fix
+tonight.** A realistic concurrent test — `touch()` and
+`auto_update_title_and_summary()` racing each other across ten
+conversations — produced 464 real errors against the unfixed code,
+including the exact `JSONDecodeError: Expecting value: line 1 column
+1` pattern already reported, plus a genuine `FileNotFoundError` from
+two writes racing `os.replace()` itself.
+
+**Why this explains the stuck status bar precisely, not just
+plausibly.** `/api/autonomy/status` calls `list_conversations()` to
+show which conversation is running (Part 25). When `index.json` is
+corrupted mid-race, that call raises, and the whole status endpoint
+fails — meaning the frontend's polling silently stops updating the
+bar at all. Stop very likely did work on the backend the whole time;
+the display just never learned it, because the one thing standing
+between "it worked" and "you can see that it worked" had quietly
+broken.
+
+**The fix mirrors Part 21's proven pattern exactly** — a dedicated
+`_index_lock()`, held for the full duration of any read-modify-write
+touching `index.json`, with the same care taken against the same
+deadlock risk (an internal, unlocked `_load_index`/`_save_index` pair,
+never called by anything already holding the lock). Verified by
+re-running the exact reproduction that found the bug: zero errors,
+against the fixed code, with all conversations intact.
+
+**The tool-iteration cap from the same investigation was reverted, per
+explicit direction** — no ceiling on turn depth; this fix stands
+entirely on its own and required no ceiling to address what was
+actually happening to the status display.
+
+---
+
+## Part 29 — She does her own housekeeping now, weekly, specifically
+
+Per Loshem's direction (2026-09-11), refining the original conversation-
+summary feature in four real ways.
+
+**Confirmed, not assumed: the actual autonomous-mode metrics were
+never touched.** `autonomy.MAX_TURNS_PER_RUN` (10) and
+`autonomy.MIN_TURNS_FOR_SELF_STOP` (3) — the real turn cap, the real
+self-stop floor — were never modified in the round that added and then
+reverted the tool-iteration ceiling. The confusion was reasonable:
+both are "caps" on autonomous behavior, but they're structurally
+unrelated — one bounds internal tool-calling depth within a single
+turn (removed, per direction), the other bounds how many whole turns
+a run can take (never touched, still exactly as built).
+
+**Cadence: weekly, not daily.** `start_background_summarizer`'s
+default interval changed from 86,400 seconds to 604,800. The
+need-based refresh check (only conversations with genuine new
+activity since their last summary) is unchanged — this just means the
+background pass itself checks in once a week instead of once a day.
+
+**The real redesign: she does this herself now, not a silent system
+completion.** The original implementation called a plain, tool-free
+text completion — genuinely not her, just infrastructure labeling
+conversations. `seira_web/hermes_session.py` gained
+`run_housekeeping_turn()` — a real, fully governed turn (her actual
+identity, her actual tools, the real governance gate) that is
+deliberately never saved as a visible sidebar conversation, so a "let
+me rename this" exchange never pollutes whatever the conversation was
+actually about. A synthetic, never-registered session id keeps it
+entirely out of the sidebar; her real work — the rename, the summary —
+is genuinely persisted and visible, through the tools she calls, which
+write to the exact same conversation index the sidebar reads. Only the
+scaffolding turn asking her to do the work stays out of view. Verified
+by test that a housekeeping turn never calls `conversations.append`
+or `conversations.create_conversation`, and uses a real, distinct
+synthetic session id every time.
+
+**Four new tools, hers to use any time, not only during the weekly
+pass.** `seira_conversation_list`, `seira_conversation_rename`,
+`seira_conversation_set_summary`, `seira_conversation_recall` — the
+last one closes the "revisit a chat if needed" ask directly: a
+paginated, full-transcript reader over any past conversation
+(`conversations.read_transcript_slice`), not capped to the last 30
+turns the way the live-thread history is, since this exists
+specifically for looking back at something old in full.
+
+**Specificity, demanded explicitly in the prompt, not left implicit.**
+The housekeeping prompt now names concrete examples of what NOT to
+write ("General Chat," "discussed various topics") alongside explicit
+instruction to use real names, decisions, and numbers — directly
+addressing "the summary should be very specific, so I can recall
+where and what it is."

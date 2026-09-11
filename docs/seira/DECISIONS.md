@@ -1904,3 +1904,59 @@ restart remains the only true guarantee that an already-running turn's
 work has stopped. D209 prevents the worst case from being unbounded;
 it does not retroactively make the existing kill switches able to
 reach into a call already in flight.
+
+**D211. The tool-iteration cap (D209) was reverted, per explicit
+direction — no ceiling on turn depth, restored to Hermes's own
+default.** Respected without argument; the person running this system
+gets to decide how to weigh an artificial limit against unbounded
+worst-case cost, and the actual fix for the reported symptom (D212)
+did not depend on the ceiling at all.
+
+**D212. The real cause of the stuck autonomy status bar, found by
+taking Loshem's own timing observation seriously and verifying it
+directly rather than dismissing it as coincidence.** `index.json` —
+every conversation's title, timestamp, and summary — had no locking
+at all, unlike each conversation's own message file (D187-D190).
+`conversation_summarizer.py` (Part 24) was the first feature to write
+to it regularly from a background thread, concurrent with the
+autonomy loop's own per-turn `touch()` calls — a genuinely new
+concurrency pattern the file was never protected against. Reproduced
+directly: 464 errors from a realistic concurrent test, including the
+exact `JSONDecodeError` pattern already reported. `/api/autonomy/status`
+depends on reading this same file (to show which conversation is
+running, D204) — when it's corrupted, that endpoint fails outright,
+explaining the stuck display as a broken status poll, not a broken
+Stop button. Fixed with the identical `_index_lock()` pattern already
+proven for per-conversation files, verified against the same
+reproduction that found the bug.
+
+**D213. `run_housekeeping_turn()` gives her real, tool-driven work
+without ever polluting the conversation being labeled — a real,
+tested guarantee, not a design intention alone.** A synthetic,
+never-registered session id and a deliberate avoidance of
+`conversations.append`/`create_conversation` mean a housekeeping turn
+leaves zero trace in the sidebar. Verified by a test that spies on
+both functions and confirms neither is ever called during a real
+housekeeping turn.
+
+**D214. The conversation-summary redesign replaces a silent, tool-free
+system completion with a genuine, governed turn that is actually
+hers.** Consistent with the pattern established for diary, ledger-
+check, and every other piece of "work that used to be infrastructure"
+tonight — if it's reasonable for her to do herself, with her own
+judgment and her own tools, it becomes something she does, not
+something done to her conversations on her behalf.
+
+**D215. Weekly cadence, confirmed explicitly, replacing the original
+daily default — the need-based refresh check underneath is
+unchanged.** Only conversations with genuine new activity since their
+last summary are ever re-summarized on a given pass; the interval
+change affects how often that check runs, not what triggers an actual
+refresh.
+
+**D216. `seira_conversation_recall` deliberately does not reuse
+`model_history`'s 30-turn cap.** That cap exists to keep a live
+turn's context reasonable; recalling an old conversation in full is a
+different operation with a different purpose, so it gets its own
+paginated reader (`read_transcript_slice`) with no such limit, capped
+only per-call like `references.read_slice` already is.
