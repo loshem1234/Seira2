@@ -1883,3 +1883,24 @@ immediately.
 **D208. Gated with the same tap-twice confirmation already established
 for the archive button, deliberately, not a new pattern invented for
 this one control.**
+
+**D209. Found and fixed the real structural gap behind ongoing token
+spend that neither Stop nor Force Clear could touch: every outer,
+turn-level protection built tonight left the inner tool-calling loop
+completely unbounded, at Hermes's own default of 90 iterations per
+turn.** Confirmed directly in `run_agent.py`'s own `AIAgent.__init__`
+signature, not assumed. `seira_web.hermes_session.SEIRA_MAX_TOOL_ITERATIONS`
+(default 25) is now passed explicitly to every constructed agent —
+autonomous and normal turns alike, since the failure mode isn't
+specific to autonomy. Verified by test that the actual value reaches
+every agent construction, not just that the constant is defined
+correctly in isolation.
+
+**D210. Stated plainly, not left implicit: this fix doesn't change what
+Stop or Force Clear can guarantee, because nothing can change that.**
+Neither one, nor any mechanism Python offers, can forcibly interrupt a
+thread already blocked inside a live network call. A full process
+restart remains the only true guarantee that an already-running turn's
+work has stopped. D209 prevents the worst case from being unbounded;
+it does not retroactively make the existing kill switches able to
+reach into a call already in flight.

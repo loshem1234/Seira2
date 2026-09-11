@@ -1396,3 +1396,43 @@ up with the same deployment-lag pattern that explained several other
 true at once: the deployed page may simply predate these fixes, *and*
 a real, permanent recovery path is still worth having regardless of
 which explanation turns out to be correct this time.
+
+---
+
+## Part 27 — The actual mechanism behind ongoing token spend that no kill switch could touch
+
+Reported live (2026-09-10): after clicking both Stop and Force Clear,
+real API cost kept accumulating anyway. This is the real structural
+cause, found by checking Hermes's own agent construction directly
+rather than assuming the kill switches themselves were incomplete.
+
+**`AIAgent`'s own default is 90 tool-calling iterations per turn.**
+Sanctum never overrode this. Every single turn-count protection built
+tonight — `autonomy.MAX_TURNS_PER_RUN`, the per-turn timeout, Stop,
+Force Clear — operates on the *outer* loop: how many whole turns run,
+and how long the loop waits for one. None of them touch the *inner*
+loop: how many real, separately-billed API calls Hermes's own agent
+makes while working through a single turn. A turn stuck repeatedly
+retrying a failing `delegate_task` call could make up to 90 real API
+calls — each one genuine cost — before that single turn even ends,
+completely invisible to and unbounded by every outer protection
+already in place.
+
+**Fixed with `SEIRA_MAX_TOOL_ITERATIONS`, defaulting to 25** — applied
+to every Sanctum turn, not only autonomous ones, since a normal,
+user-initiated turn could get stuck in the identical pattern. 25 is
+generous for legitimate multi-step work (a delegation, a few tool
+calls, a follow-up) while genuinely bounding the worst case, rather
+than inheriting 90's effectively-unbounded default. Verified by test
+that every constructed agent actually receives this cap, not just that
+the constant exists.
+
+**Why Force Clear and Stop genuinely couldn't have solved this, stated
+plainly rather than left implicit.** Both operate on Sanctum's own
+outer loop and its status record — neither one, nor any mechanism
+Python offers, can forcibly halt a thread already blocked inside a
+live network call to Anthropic's API. A full process restart remains
+the only way to guarantee an already-running turn's work has actually
+stopped; this fix doesn't change that limitation, it prevents the
+worst-case cost of a single stuck turn from being unbounded in the
+first place.
