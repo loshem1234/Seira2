@@ -580,6 +580,81 @@ AUTONOMY_STOP_SCHEMA = {
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
+CONVERSATION_LIST_SCHEMA = {
+    "name": "seira_conversation_list",
+    "description": (
+        "See every conversation that exists — its id, current title, "
+        "current summary bullets (if any), and when it was last "
+        "active. Use this to decide which conversations genuinely need "
+        "a better title or summary, or to find a past conversation "
+        "worth recalling."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+CONVERSATION_RENAME_SCHEMA = {
+    "name": "seira_conversation_rename",
+    "description": (
+        "Give a conversation a real, specific, recognizable title — "
+        "per Loshem's direction (2026-09-11), this is yours to do, on "
+        "your own judgment, not something that happens silently "
+        "without you. A good title names the actual thing discussed "
+        "(a project, a decision, a specific topic) precisely enough "
+        "that it's recognizable among many other conversations at a "
+        "glance — not a generic description. Never overwrites a title "
+        "the Architect has explicitly set himself."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "conv_id": {"type": "string"},
+            "title": {"type": "string"},
+        },
+        "required": ["conv_id", "title"],
+    },
+}
+
+CONVERSATION_SET_SUMMARY_SCHEMA = {
+    "name": "seira_conversation_set_summary",
+    "description": (
+        "Give a conversation 2-4 specific bullet points describing "
+        "what was actually discussed — concrete enough that reading "
+        "them tells you exactly where and what this conversation was "
+        "about, not a vague gist. Name real things: what was decided, "
+        "what was built, what specifically was asked — not 'discussed "
+        "various topics.'"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "conv_id": {"type": "string"},
+            "bullets": {"type": "array", "items": {"type": "string"},
+                       "description": "2-4 short, specific points."},
+        },
+        "required": ["conv_id", "bullets"],
+    },
+}
+
+CONVERSATION_RECALL_SCHEMA = {
+    "name": "seira_conversation_recall",
+    "description": (
+        "Read back a past conversation's full transcript — the way to "
+        "genuinely revisit one, not just see its title. Paginated: "
+        "page through with offset/length rather than assuming it all "
+        "fits at once. Use seira_conversation_list first if you don't "
+        "already know the conv_id."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "conv_id": {"type": "string"},
+            "offset": {"type": "integer"},
+            "length": {"type": "integer", "description": "Max 40000 characters per call."},
+        },
+        "required": ["conv_id"],
+    },
+}
+
 
 REFERENCE_LIST_SCHEMA = {
     "name": "seira_reference_list",
@@ -864,6 +939,8 @@ class SeiraPsycheProvider(MemoryProvider):
                 PROJECT_ADD_REFERENCE_SCHEMA, PROJECT_UPDATE_BLURB_SCHEMA,
                 DIARY_READ_SCHEMA, LEDGER_CHECK_SCHEMA,
                 AUTONOMY_START_SCHEMA, AUTONOMY_STOP_SCHEMA,
+                CONVERSATION_LIST_SCHEMA, CONVERSATION_RENAME_SCHEMA,
+                CONVERSATION_SET_SUMMARY_SCHEMA, CONVERSATION_RECALL_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
 
@@ -1062,6 +1139,36 @@ class SeiraPsycheProvider(MemoryProvider):
                         return json.dumps({"ok": True, **rec})
                     except ValueError as e:
                         return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_conversation_list":
+                    from seira_web import conversations as convs
+                    items = convs.list_conversations(include_archived=False)
+                    return json.dumps({"ok": True, "conversations": [
+                        {"conv_id": c["conv_id"], "title": c["title"],
+                         "updated": c["updated"],
+                         "summary_bullets": c.get("summary_bullets", [])}
+                        for c in items
+                    ]})
+                if tool_name == "seira_conversation_rename":
+                    from seira_web import conversations as convs
+                    try:
+                        rec = convs.rename_conversation(args["conv_id"], args["title"])
+                        return json.dumps({"ok": True, "title": rec["title"]})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_conversation_set_summary":
+                    from seira_web import conversations as convs
+                    bullets = [b for b in args.get("bullets", []) if isinstance(b, str)]
+                    rec = convs.auto_update_title_and_summary(args["conv_id"], None, bullets)
+                    if rec is None:
+                        return json.dumps({"ok": False,
+                                           "error": f"No conversation {args['conv_id']!r}."})
+                    return json.dumps({"ok": True, "summary_bullets": rec["summary_bullets"]})
+                if tool_name == "seira_conversation_recall":
+                    from seira_web import conversations as convs
+                    result = convs.read_transcript_slice(
+                        args["conv_id"], args.get("offset", 0), args.get("length", 8000)
+                    )
+                    return json.dumps({"ok": result["found"], **result})
                 if tool_name == "seira_reference_list":
                     from seira_web import references as refs
                     return json.dumps({"ok": True, "references": refs.list_references()})
