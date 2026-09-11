@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Her Weekly Notes{% endblock %}
+{% block body %}
+<div class="frame">
+  <p class="muted" style="margin:0 0 1.2rem">
+    Her weekly Recollection — stepping back from any single conversation
+    to look across them: recurring patterns, habits, doubts that keep
+    surfacing, connections between conversations that looked unrelated
+    in the moment but aren't. Entirely her own initiative, running
+    invisibly once a week; each entry here loads back in alongside her
+    next batch of unprocessed conversations, so she's building on her
+    own reflection, not starting over each time.
+  </p>
+  {% for e in entries %}
+  <div class="card">
+    <div class="muted" style="margin-bottom:.4rem">{{ e.ts }} ·
+      {{ e.conv_ids_covered | length }} conversation{{ "s" if e.conv_ids_covered | length != 1 }} reviewed ·
+      provenance: {{ e.provenance | join(", ") }}</div>
+    {{ e.content }}
+  </div>
+  {% else %}
+  <p class="muted">No entries yet — her first Recollection hasn't run.</p>
+  {% endfor %}
+</div>
+{% endblock %}

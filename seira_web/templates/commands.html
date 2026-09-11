@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Commands{% endblock %}
+{% block body %}
+<div class="frame">
+  <p class="muted" style="margin:0 0 1.2rem">
+    Manual triggers for things that otherwise only run automatically,
+    invisibly, in the background. More of these will likely be added
+    here over time.
+  </p>
+
+  <div class="card">
+    <h2>Recollection</h2>
+    <p class="muted" style="margin:.2rem 0 .8rem">
+      Her weekly self-examination — stepping back across her
+      conversations to notice patterns, compile recurring threads into
+      projects, tag things for her own later recall, and write a real
+      entry to Her Weekly Notes. Runs automatically once a week on its
+      own; these let either of you start it manually. Either way, it
+      runs fully invisibly — nothing appears while it works; check Her
+      Weekly Notes afterward.
+    </p>
+    <div style="display:flex; gap:.6rem; flex-wrap:wrap">
+      <button class="gold" id="run-recollection" type="button">
+        Run this week's Recollection now
+      </button>
+      <button id="run-recollection-full" type="button">
+        Process every chat (full reprocess)
+      </button>
+    </div>
+    <p class="muted" id="recollection-status" style="margin-top:.6rem"></p>
+  </div>
+</div>
+
+<script>
+async function runCommand(url, statusEl, button) {
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = 'Starting…';
+  try {
+    const r = await fetch(url, {method: 'POST'});
+    const d = await r.json();
+    statusEl.textContent = d.message || (r.ok ? 'Started.' : 'Could not start.');
+  } catch (e) {
+    statusEl.textContent = 'Could not reach the server.';
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+document.getElementById('run-recollection').addEventListener('click', (e) => {
+  runCommand('/api/commands/recollection/run-now',
+    document.getElementById('recollection-status'), e.target);
+});
+document.getElementById('run-recollection-full').addEventListener('click', (e) => {
+  runCommand('/api/commands/recollection/run-full',
+    document.getElementById('recollection-status'), e.target);
+});
+</script>
+{% endblock %}

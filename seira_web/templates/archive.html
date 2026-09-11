@@ -4,6 +4,7 @@
 <div class="frame">
 <div class="tabs" id="tabs">
   <button class="tab active" data-tab="projects">Projects</button>
+  <button class="tab" data-tab="tags">Tags</button>
   <button class="tab" data-tab="loose">Documents</button>
   <button class="tab" data-tab="images">Images</button>
 </div>
@@ -15,8 +16,13 @@
 </p>
 
 <div class="tabpanel" data-panel="projects">
+  <div style="margin-bottom:1rem" id="initiative-toggle">
+    <button class="tab active" data-initiative="all">All</button>
+    <button class="tab" data-initiative="self">Her own</button>
+    <button class="tab" data-initiative="requested">Requested</button>
+  </div>
   {% for p in projects %}
-  <div class="card">
+  <div class="card" data-initiative="{{ p.get('initiative', 'self') }}">
     <h2>{{ p.name }}
       <span class="muted" style="font-size:.75rem;font-weight:normal">[{{ p.tag }}]</span>
       {% if p.get("initiative", "self") == "self" %}
@@ -38,6 +44,26 @@
   </div>
   {% else %}
   <p class="muted">No living projects yet.</p>
+  {% endfor %}
+</div>
+
+<div class="tabpanel" data-panel="tags" hidden>
+  <p class="muted" style="margin:0 0 1rem">
+    Tags she's set on her own conversations, for her own later recall —
+    a conversation often carries several, since one conversation can
+    touch several genuinely different subjects.
+  </p>
+  {% for t in tags_view %}
+  <div class="card">
+    <h2>{{ t.tag }}</h2>
+    {% for c in t.conversations %}
+    <div class="entry">
+      <a href="/?c={{ c.conv_id }}">{{ c.title }}</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No tags yet — she hasn't tagged any conversations.</p>
   {% endfor %}
 </div>
 
@@ -77,11 +103,21 @@
 <script>
 document.getElementById('tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.tab'); if (!btn) return;
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#tabs .tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   const name = btn.dataset.tab;
   document.querySelectorAll('.tabpanel').forEach(p =>
     p.hidden = p.dataset.panel !== name);
+});
+
+document.getElementById('initiative-toggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-initiative]'); if (!btn) return;
+  document.querySelectorAll('#initiative-toggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const filter = btn.dataset.initiative;
+  document.querySelectorAll('[data-panel="projects"] > .card[data-initiative]').forEach(card => {
+    card.hidden = filter !== 'all' && card.dataset.initiative !== filter;
+  });
 });
 </script>
 {% endblock %}
