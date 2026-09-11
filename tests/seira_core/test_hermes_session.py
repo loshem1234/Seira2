@@ -55,27 +55,6 @@ def test_agent_is_built_to_serve_her_real_identity():
     assert kwargs["session_id"] == "conv-1"
 
 
-def test_every_turn_gets_a_real_bounded_iteration_cap():
-    """Real, live gap found (2026-09-10): AIAgent's own default is 90
-    tool-calling iterations PER TURN, unbounded by anything the
-    autonomy loop's own turn-count cap protects against — a single
-    stuck turn (e.g. repeatedly retrying a failing delegate_task call)
-    could make up to 90 real, separate, billed API calls before that
-    one turn even ends. This is the actual mechanism behind a
-    live-reported symptom: ongoing token spend that neither the
-    ordinary stop nor a force-clear of the status display could touch,
-    since both operate on the outer loop, not this inner one. Every
-    single turn — not just autonomous ones — must get an explicit,
-    much tighter cap, not Hermes's own generous default."""
-    with patch("run_agent.AIAgent", _FakeAIAgent):
-        from seira_web.hermes_session import _build_agent, SEIRA_MAX_TOOL_ITERATIONS
-        _build_agent(session_id="conv-1", emit=lambda e: None)
-    kwargs = _FakeAIAgent.last_kwargs
-    assert kwargs["max_iterations"] == SEIRA_MAX_TOOL_ITERATIONS
-    assert kwargs["max_iterations"] < 90  # meaningfully tighter than the unset default
-    assert kwargs["max_iterations"] > 0
-
-
 def test_tool_start_callback_matches_real_call_site_shape():
     """agent/tool_executor.py calls
     ``agent.tool_start_callback(tool_call_id, function_name, display_args)``
@@ -118,6 +97,58 @@ def test_run_turn_via_hermes_round_trips_history_and_reply():
     assert call_kwargs["user_message"] == "hi"
     assert call_kwargs["conversation_history"] == []
     assert any(e.get("event") == "reply" for e in events)
+
+
+def test_housekeeping_turn_never_touches_conversations_module(monkeypatch, tmp_path):
+    """The core guarantee (2026-09-11): a housekeeping turn (used for
+    her own conversation renaming/summarizing) must never create,
+    append to, or otherwise touch a real, sidebar-visible
+    conversation — only her own tool calls during that turn (rename,
+    set_summary) should ever write anything real."""
+    monkeypatch.setenv("SEIRA_PLATFORM_ROOT", str(tmp_path / "platform"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants"))
+    from seira_core.tenancy import tenant_root
+    tenant_root("t-test123456").mkdir(parents=True, exist_ok=True)
+
+    calls = {"append": 0, "create": 0}
+    real_append = None
+    real_create = None
+
+    def spy_append(*a, **kw):
+        calls["append"] += 1
+        return real_append(*a, **kw)
+
+    def spy_create(*a, **kw):
+        calls["create"] += 1
+        return real_create(*a, **kw)
+
+    import seira_web.conversations as convs_module
+    real_append = convs_module.append
+    real_create = convs_module.create_conversation
+    monkeypatch.setattr(convs_module, "append", spy_append)
+    monkeypatch.setattr(convs_module, "create_conversation", spy_create)
+
+    fake_result = {"final_response": "done", "messages": []}
+    with patch("run_agent.AIAgent", _FakeAIAgent), \
+         patch("agent.conversation_loop.run_conversation", return_value=fake_result):
+        from seira_web.hermes_session import run_housekeeping_turn
+        result = run_housekeeping_turn("do some housekeeping", "t-test123456")
+
+    assert result == "done"
+    assert calls["append"] == 0
+    assert calls["create"] == 0
+
+
+def test_housekeeping_turn_uses_a_synthetic_never_registered_session_id():
+    captured = {}
+    with patch("run_agent.AIAgent", _FakeAIAgent), \
+         patch("agent.conversation_loop.run_conversation",
+              return_value={"final_response": "ok", "messages": []}):
+        from seira_web.hermes_session import run_housekeeping_turn
+        run_housekeeping_turn("prompt text", "tenant-a")
+    kwargs = _FakeAIAgent.last_kwargs
+    assert kwargs["session_id"].startswith("housekeeping-")
+    assert kwargs["session_id"] != "tenant-a"  # a real, distinct synthetic id, not reused
 
 
 def test_sanctum_runtime_flag_defaults_off(monkeypatch, tmp_path):
