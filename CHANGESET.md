@@ -1,46 +1,72 @@
-# CHANGESET — The real cause of ongoing token spend that no kill switch could stop
+# CHANGESET — She does her own conversation housekeeping now
 
-Four files. Please read this whole manifest — it explains why Force
-Clear genuinely did nothing, and what actually fixes it.
+Nine files. Four real changes, all from this round's direction.
 
-    seira_web/hermes_session.py         — THE FIX
-    tests/seira_core/test_hermes_session.py — 1 new test
+    seira_web/conversations.py            — paginated full-transcript
+                                            recall for revisiting a
+                                            past chat
+    seira_web/hermes_session.py           — the tool-iteration ceiling
+                                            REMOVED (reverted); new
+                                            run_housekeeping_turn()
+    seira_web/conversation_summarizer.py  — weekly cadence; she does
+                                            the work herself now
+    seira_bridge/__init__.py              — 4 new tools for her
+    tests/... (3 files updated/added)
     docs/seira/WIRING.md, docs/seira/DECISIONS.md — appended
 
-## What was actually happening
+## First — confirmed directly, not just reassured
 
-Everything built tonight to control autonomous mode's cost — the
-10-turn cap, the per-turn timeout, Stop, Force Clear — protects the
-*outer* loop: how many whole turns run, one after another. None of it
-touches something underneath: Hermes's own agent, by default, is
-allowed up to 90 real, separately-billed API calls *within a single
-turn* while it works through tool calls. If a turn gets stuck
-repeatedly retrying something that keeps failing — a broken
-delegation call, for instance — it could make dozens of genuine API
-calls before that one turn even ends, completely invisible to every
-protection already in place. That's the real mechanism behind tokens
-still being used after both Stop and Force Clear.
+`autonomy.MAX_TURNS_PER_RUN` (10) and `autonomy.MIN_TURNS_FOR_SELF_STOP`
+(3) were checked directly in the source and were never touched by
+anything in the previous round. What got removed was a completely
+separate thing — an inner limit on tool calls within one turn — not
+your actual autonomous-mode metrics. Those are exactly as they've
+always been.
 
-## The fix
+## Cadence: weekly, not daily
 
-Every turn Sanctum constructs — autonomous or not — now gets an
-explicit cap of 25 internal tool-calling iterations, instead of
-inheriting Hermes's much more permissive default of 90. Real multi-
-step work still has plenty of room; the worst case is now genuinely
-bounded instead of effectively open-ended.
+Changed from once a day to once a week, as asked. The underlying logic
+— only summarize a conversation that's actually had new activity since
+its last summary — is unchanged; this just means the check itself
+runs less often.
 
-## What this does NOT change, stated plainly
+## The real redesign: it's hers now, not silent infrastructure
 
-Force Clear and Stop still can't reach into a call that's already in
-flight — nothing can; Python cannot forcibly interrupt a thread
-blocked inside a live network request, and this fix doesn't pretend
-otherwise. A full process restart remains the only guaranteed way to
-stop an already-running turn's work. What this fix does is make sure
-that if a turn gets stuck, its worst-case cost has a real ceiling
-instead of none at all.
+Before, a background process quietly called a bare text completion to
+generate a title and summary — not her, just system code. Now, once a
+week, she gets a real, fully governed turn — her real identity, her
+real tools — and does the renaming and summarizing herself, using her
+own judgment about what's actually worth remembering.
+
+One thing worth knowing about how this is built: that turn is
+deliberately kept out of the sidebar entirely, so it never shows up as
+a weird "let me rename this" exchange inside whatever the conversation
+was actually about. Her real work — the title, the summary — is
+completely real and visible, through the same tools a human uses to
+rename a chat; only the scaffolding asking her to do it stays hidden.
+Verified by a test that confirms this scaffolding turn never touches
+the conversation being labeled at all.
+
+## Four new tools, hers to use any time
+
+- `seira_conversation_list` — see every conversation, its title, and
+  its current summary
+- `seira_conversation_rename` / `seira_conversation_set_summary` — the
+  actual work
+- `seira_conversation_recall` — read back an ENTIRE past conversation,
+  paginated, not capped the way a live turn's context is. This is the
+  direct answer to "can she recall and revisit a chat" — she can pull
+  up any past conversation in full, any time, on her own initiative.
+
+## Specificity
+
+The prompt now names exactly what NOT to write ("General Chat,"
+"discussed various topics") and asks explicitly for real names, real
+decisions, real numbers — directly addressing wanting summaries
+specific enough to actually recall where and what a chat was.
 
 ## Testing
 
-451 passed (450 before this round + 1 new). Run:
+453 passed. Run:
 
     python -m pytest tests/seira_core/ -q
