@@ -134,9 +134,33 @@ def test_housekeeping_turn_never_touches_conversations_module(monkeypatch, tmp_p
         from seira_web.hermes_session import run_housekeeping_turn
         result = run_housekeeping_turn("do some housekeeping", "t-test123456")
 
-    assert result == "done"
+    assert result["reply"] == "done"
     assert calls["append"] == 0
     assert calls["create"] == 0
+
+
+def test_housekeeping_turn_chains_history_across_calls():
+    """The piece Recollection needs specifically: a caller can pass
+    the previous turn's messages back in and get the next turn's
+    messages back out, chaining a longer session — the same pattern
+    run_turn_via_hermes already uses for a real conversation."""
+    fake_result = {"final_response": "turn 2 reply",
+                   "messages": [{"role": "user", "content": "turn 1"},
+                               {"role": "assistant", "content": "turn 1 reply"},
+                               {"role": "user", "content": "turn 2"},
+                               {"role": "assistant", "content": "turn 2 reply"}]}
+    with patch("run_agent.AIAgent", _FakeAIAgent), \
+         patch("agent.conversation_loop.run_conversation",
+              return_value=fake_result) as mock_run:
+        from seira_web.hermes_session import run_housekeeping_turn
+        prior_history = [{"role": "user", "content": "turn 1"},
+                         {"role": "assistant", "content": "turn 1 reply"}]
+        result = run_housekeeping_turn("turn 2 prompt", "tenant-a", history=prior_history)
+
+    assert result["reply"] == "turn 2 reply"
+    assert result["messages"] == fake_result["messages"]
+    _, call_kwargs = mock_run.call_args
+    assert call_kwargs["conversation_history"] == prior_history
 
 
 def test_housekeeping_turn_uses_a_synthetic_never_registered_session_id():

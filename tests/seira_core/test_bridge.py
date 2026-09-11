@@ -67,6 +67,10 @@ def test_tools_expose_no_intellect_or_unity_write(provider):
         "seira_autonomy_start", "seira_autonomy_stop",
         "seira_conversation_list", "seira_conversation_rename",
         "seira_conversation_set_summary", "seira_conversation_recall",
+        "seira_conversation_add_tags", "seira_conversation_find_by_tag",
+        "seira_conversation_list_tags", "seira_recollection_mark_reviewed",
+        "seira_recollection_conclude", "seira_weekly_notes_write",
+        "seira_weekly_notes_read",
         "seira_create_file", "seira_image_recall",
         "seira_image_tag", "seira_image_list", "seira_generate_image",
     ]

@@ -165,6 +165,64 @@ def test_archive_page_marks_session_checkpoints(client):
 
 # ---------------- autonomous mode: the API layer ----------------
 
+def test_commands_page_loads(client):
+    r = client.get("/commands")
+    assert r.status_code == 200
+    assert "Recollection" in r.text
+
+
+def test_weekly_notes_page_loads_empty(client):
+    r = client.get("/weekly-notes")
+    assert r.status_code == 200
+    assert "No entries yet" in r.text
+
+
+def test_commands_recollection_run_now_starts_in_background(client, monkeypatch):
+    """Must return immediately, not block waiting for the session —
+    verified by confirming the route itself returns quickly and
+    reports starting, not by waiting for a real session to finish."""
+    called = {"n": 0}
+    monkeypatch.setattr("seira_web.recollection.run_now",
+                        lambda tenant_id: called.__setitem__("n", called["n"] + 1))
+    r = client.post("/api/commands/recollection/run-now")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    import time
+    time.sleep(0.2)  # give the spawned background thread a moment
+    assert called["n"] == 1
+
+
+def test_commands_recollection_run_full_starts_in_background(client, monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr("seira_web.recollection.run_full_reprocess",
+                        lambda tenant_id: called.__setitem__("n", called["n"] + 1))
+    r = client.post("/api/commands/recollection/run-full")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    import time
+    time.sleep(0.2)
+    assert called["n"] == 1
+
+
+def test_archive_page_shows_tags_tab(client):
+    from seira_web import accounts as acct
+    from seira_core.tenancy import tenant_scope
+    from seira_web import conversations as convs
+    account = acct.verify_login("a@example.com", "long-enough-password")
+    with tenant_scope(account["tenant_id"]):
+        conv = convs.create_conversation("Kitchen Talk")
+        convs.add_tags(conv["conv_id"], ["kitchen", "renovation"])
+
+    page = client.get("/archive").text
+    assert "kitchen" in page
+    assert "Kitchen Talk" in page
+
+
+def test_archive_page_tags_tab_empty_state(client):
+    page = client.get("/archive").text
+    assert "No tags yet" in page
+
+
 def test_autonomy_status_when_nothing_running(client):
     r = client.get("/api/autonomy/status")
     assert r.status_code == 200 and r.json()["active"] is False
