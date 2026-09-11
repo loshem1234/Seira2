@@ -55,6 +55,27 @@ def test_agent_is_built_to_serve_her_real_identity():
     assert kwargs["session_id"] == "conv-1"
 
 
+def test_every_turn_gets_a_real_bounded_iteration_cap():
+    """Real, live gap found (2026-09-10): AIAgent's own default is 90
+    tool-calling iterations PER TURN, unbounded by anything the
+    autonomy loop's own turn-count cap protects against — a single
+    stuck turn (e.g. repeatedly retrying a failing delegate_task call)
+    could make up to 90 real, separate, billed API calls before that
+    one turn even ends. This is the actual mechanism behind a
+    live-reported symptom: ongoing token spend that neither the
+    ordinary stop nor a force-clear of the status display could touch,
+    since both operate on the outer loop, not this inner one. Every
+    single turn — not just autonomous ones — must get an explicit,
+    much tighter cap, not Hermes's own generous default."""
+    with patch("run_agent.AIAgent", _FakeAIAgent):
+        from seira_web.hermes_session import _build_agent, SEIRA_MAX_TOOL_ITERATIONS
+        _build_agent(session_id="conv-1", emit=lambda e: None)
+    kwargs = _FakeAIAgent.last_kwargs
+    assert kwargs["max_iterations"] == SEIRA_MAX_TOOL_ITERATIONS
+    assert kwargs["max_iterations"] < 90  # meaningfully tighter than the unset default
+    assert kwargs["max_iterations"] > 0
+
+
 def test_tool_start_callback_matches_real_call_site_shape():
     """agent/tool_executor.py calls
     ``agent.tool_start_callback(tool_call_id, function_name, display_args)``
