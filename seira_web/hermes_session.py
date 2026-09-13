@@ -301,6 +301,7 @@ def run_housekeeping_turn(prompt: str, tenant_id: str,
         return {
             "reply": result.get("final_response") or result.get("error") or "",
             "messages": result.get("messages", history or []),
+            "errored": bool(result.get("error")),
         }
 
 
@@ -351,7 +352,22 @@ def run_turn_via_hermes(
         final = result.get("final_response") or result.get("error") or ""
         emit({"event": "reply", "text": final})
         return {"reply": final, "messages": result.get("messages", history),
-                "inventory": inventory}
+                "inventory": inventory,
+                # Real, live gap found (2026-09-13): a catastrophic
+                # API failure (credit exhaustion, content-policy
+                # block, exhausted retries) doesn't raise here —
+                # run_conversation folds it into result["error"] and
+                # this function has always folded THAT into "reply",
+                # meaning it read as a completely normal, successful
+                # turn to every caller. autonomy_loop's own "a bad
+                # turn must not become a silent infinite retry loop"
+                # safeguard (its except Exception block) never once
+                # fired for this failure class, because nothing ever
+                # raised — an errored turn looked identical to a real
+                # one, so the loop just kept going, turn after turn,
+                # each one failing the same way. This flag is what
+                # lets a caller tell the difference.
+                "errored": bool(result.get("error"))}
 
     if tenant_id and conv_id:
         with turn_context.turn_scope(tenant_id, conv_id):

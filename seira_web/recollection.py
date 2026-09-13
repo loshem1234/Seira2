@@ -220,6 +220,17 @@ def _run_session_for_tenant(tenant_id: str, force_all: bool = False) -> None:
                 logger.error("Recollection turn failed for %s: %s",
                              tenant_id, e, exc_info=True)
                 break
+            if result.get("errored"):
+                # Same real gap fixed in autonomy_loop.py (2026-09-13):
+                # a catastrophic API failure (credit exhaustion, a
+                # content-policy block, exhausted retries) doesn't
+                # raise inside run_housekeeping_turn — it reads as a
+                # normal, successful turn, so this loop would
+                # otherwise keep going, turn after turn, up to the
+                # full 20-turn ceiling, each one failing identically.
+                logger.error("Recollection for %s: turn errored, stopping: %s",
+                             tenant_id, result["reply"][:300])
+                break
             history = result["messages"]
             turn += 1
             _record_turn(tenant_id)

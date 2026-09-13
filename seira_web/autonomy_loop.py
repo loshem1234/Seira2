@@ -200,6 +200,22 @@ def _run_one_turn(tenant_id: str, conv_id: str, prompt_text: str) -> None:
         # finalize the same reply twice.
         convs.append(conv_id, "assistant", text=result["reply"], autonomous=True)
         convs.touch(conv_id)
+        if result.get("errored"):
+            # Real, live gap found (2026-09-13): a catastrophic API
+            # failure (credit exhaustion, content-policy block,
+            # exhausted retries) never raised here — it read as a
+            # normal, successful turn, so the loop just kept going,
+            # turn after turn, each one failing identically, all the
+            # way to the 10-turn cap, invisible to the "a bad turn
+            # must not become a silent infinite retry loop" safeguard
+            # below, since that safeguard only ever triggers on a
+            # real exception. The reply is still appended above first
+            # — what actually happened stays visible in the
+            # conversation — then this raises specifically so that
+            # existing safeguard now actually catches this failure
+            # class too, instead of a second, separate stop mechanism
+            # being built to duplicate it.
+            raise RuntimeError(f"Turn errored: {result['reply'][:300]}")
 
 
 def _loop(tenant_id: str, conv_id: str, mode: str) -> None:
