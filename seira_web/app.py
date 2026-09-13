@@ -767,9 +767,18 @@ def create_app(llm_client_factory=None) -> FastAPI:
                                           - started).total_seconds())
             # A raw conv_id tells nobody anything at a glance — the
             # actual title is what lets the bar say WHICH chat is
-            # running, especially when it isn't the one currently open.
-            match = next((c for c in convs.list_conversations(include_archived=True)
-                         if c["conv_id"] == rec.get("conv_id")), None)
+            # running, especially when it isn't the one currently
+            # open. Real, newly-found bug (2026-09-13): this lookup
+            # was never actually wrapped in tenant_scope, unlike every
+            # other route in this file — silently reading from
+            # whatever the ambient/default location was rather than
+            # this account's real tenant, so conv_title always came
+            # back None regardless of whose data was actually being
+            # asked for. Confirmed by directly testing this route, not
+            # assumed.
+            with tenant_scope(account["tenant_id"]):
+                match = next((c for c in convs.list_conversations(include_archived=True)
+                             if c["conv_id"] == rec.get("conv_id")), None)
             rec["conv_title"] = match["title"] if match else None
         return JSONResponse(rec)
 
