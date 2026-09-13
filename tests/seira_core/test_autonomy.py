@@ -190,6 +190,85 @@ def test_loop_stops_when_stop_is_requested_between_turns(monkeypatch):
     assert call_count["n"] == 2
 
 
+def test_loop_stops_immediately_on_an_errored_turn_not_the_full_cap(monkeypatch):
+    """Real, live gap found (2026-09-13): a catastrophic API failure
+    (credit exhaustion was the actual live case — 'Billing or credits
+    exhausted: HTTP 400') never raises inside run_turn_via_hermes —
+    Hermes folds it into result["error"] and that gets folded into
+    "reply", so it read as a completely normal, successful turn. The
+    loop's own "a bad turn must not become a silent infinite retry
+    loop" safeguard (its except Exception block) never once fired for
+    this failure class, because nothing ever raised — it just kept
+    going, turn after turn, all the way to the full cap, each one
+    failing identically. Confirmed live: Stop and Force Clear couldn't
+    meaningfully help either, since by the time either was clicked
+    the run was often already moving on to its next identically-
+    doomed turn. This proves the actual fix: one errored turn, not
+    ten, ends the run."""
+    from seira_web import autonomy_loop
+    monkeypatch.setattr(autonomy, "MAX_TURNS_PER_RUN", 10)
+    monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
+    monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
+
+    fake_convs = _FakeConvs()
+    monkeypatch.setattr("seira_web.conversations.append", fake_convs.append)
+    monkeypatch.setattr("seira_web.conversations.model_history", fake_convs.model_history)
+    monkeypatch.setattr("seira_web.conversations.touch", fake_convs.touch)
+    monkeypatch.setattr("seira_core.tripwire.is_halted", lambda: False)
+    monkeypatch.setattr("seira_core.tenancy.tenant_scope",
+                        lambda *a, **kw: _NullContext())
+
+    call_count = {"n": 0}
+
+    def fake_run_turn(conv_id, prompt, history, emit, **kwargs):
+        call_count["n"] += 1
+        # The exact live shape: no exception, a normal-looking
+        # dict — just marked errored, the way a real credit-exhaustion
+        # failure actually comes back from run_turn_via_hermes.
+        return {"reply": "Billing or credits exhausted: HTTP 400...",
+               "messages": [], "errored": True}
+
+    monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes", fake_run_turn)
+
+    autonomy.start("tenant-a", "conv-1", "exploration")
+    autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+
+    assert call_count["n"] == 1  # NOT 10 — stopped after the very first failure
+    assert autonomy.status("tenant-a")["active"] is False  # cleanly cleared, not stuck
+    # The honest reply is still visible in the conversation — a
+    # failure never means the record of what happened disappears.
+    assert any("Billing or credits exhausted" in fields.get("text", "")
+              for conv_id, kind, fields in fake_convs.appended)
+
+
+def test_a_genuinely_successful_turn_with_errored_absent_is_unaffected(monkeypatch):
+    """The flag defaults to falsy when absent entirely — older or
+    mocked callers that don't set it at all must not be mistaken for
+    an error."""
+    from seira_web import autonomy_loop
+    monkeypatch.setattr(autonomy, "MAX_TURNS_PER_RUN", 2)
+    monkeypatch.setattr(autonomy_loop, "PACING_SECONDS", 0)
+    monkeypatch.setattr(autonomy_loop, "MAX_RUNTIME_HOURS", 999)
+
+    fake_convs = _FakeConvs()
+    monkeypatch.setattr("seira_web.conversations.append", fake_convs.append)
+    monkeypatch.setattr("seira_web.conversations.model_history", fake_convs.model_history)
+    monkeypatch.setattr("seira_web.conversations.touch", fake_convs.touch)
+    monkeypatch.setattr("seira_core.tripwire.is_halted", lambda: False)
+    monkeypatch.setattr("seira_core.tenancy.tenant_scope",
+                        lambda *a, **kw: _NullContext())
+
+    call_count = {"n": 0}
+    monkeypatch.setattr("seira_web.hermes_session.run_turn_via_hermes",
+                        lambda *a, **kw: call_count.__setitem__("n", call_count["n"] + 1)
+                        or {"reply": "a genuine reply", "messages": []})
+
+    autonomy.start("tenant-a", "conv-1", "exploration")
+    autonomy_loop._loop("tenant-a", "conv-1", "exploration")
+
+    assert call_count["n"] == 2  # ran the full, legitimate cap, unaffected
+
+
 def test_loop_stops_immediately_if_seira_is_halted(monkeypatch):
     """A halted Seira must not act autonomously either — Art. 32.3
     applies here exactly as it does to a normal turn."""

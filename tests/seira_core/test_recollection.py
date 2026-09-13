@@ -98,6 +98,33 @@ def test_needs_recollection_false_when_review_is_current():
 
 # ---------------- the real session loop ----------------
 
+def test_session_stops_immediately_on_an_errored_turn_not_the_full_ceiling(home, monkeypatch):
+    """Same real gap fixed in autonomy_loop.py (2026-09-13), applied
+    here too: a catastrophic API failure (credit exhaustion was the
+    actual live case) doesn't raise inside run_housekeeping_turn — it
+    reads as a normal, successful turn, so this loop would otherwise
+    keep going all the way to its 20-turn ceiling, each one failing
+    identically."""
+    conv = convs.create_conversation()
+    monkeypatch.setattr(recollection, "MAX_TURNS_FOR_RECOLLECTION", 20)
+    monkeypatch.setattr("seira_core.tripwire.is_halted", lambda: False)
+    monkeypatch.setattr("seira_core.tenancy.tenant_scope", lambda *a, **kw: _NullContext())
+
+    call_count = {"n": 0}
+
+    def fake_housekeeping(prompt, tenant_id, history=None, emit=None):
+        call_count["n"] += 1
+        return {"reply": "Billing or credits exhausted: HTTP 400...",
+               "messages": [], "errored": True}
+
+    monkeypatch.setattr("seira_web.hermes_session.run_housekeeping_turn", fake_housekeeping)
+
+    recollection._run_session_for_tenant("tenant-a")
+
+    assert call_count["n"] == 1  # NOT 20 — stopped after the very first failure
+    assert "tenant-a" not in recollection._session_state  # cleaned up, not stuck
+
+
 def test_session_stops_at_the_ceiling_if_never_concluded(home, monkeypatch):
     """The hard ceiling: even if she never calls conclude, the loop
     itself must stop at MAX_TURNS_FOR_RECOLLECTION."""
