@@ -188,3 +188,65 @@ def test_sanctum_runtime_hermes_mode_is_explicit_opt_in(monkeypatch):
     monkeypatch.setenv("SEIRA_SANCTUM_RUNTIME", "hermes")
     import os
     assert os.environ.get("SEIRA_SANCTUM_RUNTIME", "direct") == "hermes"
+
+
+# ---------------- delegation disabled for unsupervised turns (2026-09-13) ----------------
+#
+# Real, live credit drain, confirmed directly: she was autonomously
+# dispatching delegate_task again and again, unsupervised, the
+# subagents consistently returning empty. The underlying delegation
+# bug itself was never actually diagnosed (the original traceback was
+# never obtained), so rather than try to catch and limit its failures
+# after the fact, the tool is simply made unavailable wherever nobody
+# is present to notice or intervene, until it's genuinely fixed.
+
+def test_a_normal_human_present_turn_leaves_delegation_untouched():
+    """The critical negative case: an ordinary chat turn — a human
+    actually present — must NOT have delegation disabled. Only the
+    unsupervised paths do."""
+    with patch("run_agent.AIAgent", _FakeAIAgent), \
+         patch("agent.conversation_loop.run_conversation",
+              return_value={"final_response": "hi", "messages": []}):
+        from seira_web.hermes_session import run_turn_via_hermes
+        run_turn_via_hermes("conv-1", "hello", [], lambda e: None)
+    kwargs = _FakeAIAgent.last_kwargs
+    assert kwargs["disabled_toolsets"] is None
+
+
+def test_autonomous_mode_turns_have_delegation_disabled(monkeypatch):
+    """The actual, real fix — exercised at the level autonomy_loop
+    itself calls run_turn_via_hermes, not just _build_agent in
+    isolation."""
+    from unittest.mock import patch as _patch
+    with _patch("run_agent.AIAgent", _FakeAIAgent), \
+         _patch("agent.conversation_loop.run_conversation",
+               return_value={"final_response": "reflecting", "messages": []}), \
+         _patch("seira_core.tenancy.tenant_scope", lambda *a, **kw: _NullContextForToolsetTest()), \
+         _patch("seira_web.conversations.append", lambda *a, **kw: {"id": 1}), \
+         _patch("seira_web.conversations.model_history", lambda *a, **kw: []), \
+         _patch("seira_web.conversations.touch", lambda *a, **kw: None):
+        from seira_web.autonomy_loop import _run_one_turn
+        _run_one_turn("tenant-a", "conv-1", "a prompt")
+    kwargs = _FakeAIAgent.last_kwargs
+    assert kwargs["disabled_toolsets"] == ["delegation"]
+
+
+def test_housekeeping_turns_always_have_delegation_disabled():
+    """Unconditional, not passed in by the caller — every caller of
+    run_housekeeping_turn is, by definition, unsupervised background
+    work (the weekly summarizer, Recollection)."""
+    with patch("run_agent.AIAgent", _FakeAIAgent), \
+         patch("agent.conversation_loop.run_conversation",
+              return_value={"final_response": "ok", "messages": []}):
+        from seira_web.hermes_session import run_housekeeping_turn
+        run_housekeeping_turn("some housekeeping prompt", "tenant-a")
+    kwargs = _FakeAIAgent.last_kwargs
+    assert kwargs["disabled_toolsets"] == ["delegation"]
+
+
+class _NullContextForToolsetTest:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
