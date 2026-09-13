@@ -1,39 +1,41 @@
-# The direct fix: delegation itself is now unavailable wherever nobody's watching
+# A real, separate bug found while verifying your question — fixed
 
-Three files. This is the fix for what you actually identified —
-repeated, unsupervised delegate_task dispatch, subagents always
-returning empty, draining real credit with nobody present to notice.
+Two files.
 
-    seira_web/hermes_session.py — REPLACE
-    seira_web/autonomy_loop.py  — REPLACE
-    tests/seira_core/test_hermes_session.py — REPLACE
+    seira_web/app.py — REPLACE
+    tests/seira_core/test_ui_update_app.py — REPLACE (one test
+      corrected; the file overall still needs its login fixture
+      updated for the new single-password system — known, separate,
+      not urgent)
 
-## Why this approach, not another retry limit
+## What this actually is
 
-The underlying delegation bug has never actually been diagnosed — we
-never got a real traceback for the original failure. Rather than try
-to detect and limit its failures after the fact (which is what the
-previous fix did, for a different failure shape), this goes more
-direct: the delegate_task tool is simply not available to her at all
-in any context where nobody is present to notice something going
-wrong — autonomous mode, and the weekly Recollection/summarizer
-background work. A normal conversation, where you're actually there,
-is unaffected — delegation still works exactly as before there.
+Not something new breaking — something that was quietly broken since
+I first built the "which conversation is running" feature. The status
+endpoint's lookup for a conversation's title was never wrapped in
+tenant_scope, unlike every other route in this file. It silently
+returned nothing instead of erroring, so it never showed up as an
+obvious failure — it just meant that part of the bar (naming which
+chat was running elsewhere) never actually worked.
 
-This doesn't fix the underlying delegation bug itself. It makes it
-impossible for that bug to keep costing you money unattended while it
-stays unfixed.
+I only found it because I ran a real, direct test against the actual
+route rather than just reasoning about the code — and I want to be
+honest that my own original test for this same feature had a bug in
+it too: it called the route from inside the same tenant context it
+had just set up, which accidentally hid the exact problem it was
+supposed to catch. Fixed that too.
 
-## Tested directly, not just written
+## Direct answer to what you actually asked
 
-Three new tests confirm this precisely:
-- An ordinary chat turn leaves delegation completely untouched
-- Autonomous mode's actual turn function has it disabled — verified
-  at the real call site, not just in isolation
-- Every housekeeping turn (summarizer, Recollection) has it disabled
-  unconditionally, since none of those are ever human-present
+Verified live, not assumed: the 3-turn floor and 10-turn ceiling are
+still exactly as they've always been in autonomy.py, completely
+untouched. The turn counter display, and the honest Stop button (ends
+after the current turn, never mid-generation), are both still fully
+in place in chat.html, unchanged. Recollection and the weekly
+summarizer have never shown any bar at all — no status, no controls
+— by design, since they're meant to be invisible.
 
-Full suite: same 75 pre-existing failures as before (the old
-email/password test fixtures, unrelated to this), no new ones. Run:
-
-    python -m pytest tests/seira_core/test_hermes_session.py tests/seira_core/test_autonomy.py tests/seira_core/test_recollection.py -q
+I can't tell you with certainty that this specific bug explains
+everything you saw — the earlier index.json corruption issue (already
+fixed) is a more likely explanation for the bar getting fully stuck
+showing nothing at all. But this was real, and now fixed regardless.
