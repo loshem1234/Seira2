@@ -15,11 +15,11 @@ with 503 — the tripwire's word is final until her Architect clears it.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -95,70 +95,84 @@ def create_app(llm_client_factory=None) -> FastAPI:
         (lambda model=None: AnthropicClient(model=model or DEFAULT_MODEL))
 
     # ---------------- auth plumbing ----------------
+    #
+    # Replaced (2026-09-12), per Loshem's direction: the multi-account,
+    # accounts.json/sessions.json-backed login system was built for a
+    # multi-tenant future that was later discontinued — he is the sole
+    # user. Rather than keep debugging that system's exact failure
+    # (accounts.json and sessions.json both verified intact; a full
+    # service restart made no difference; the actual root cause was
+    # never pinned down), it's replaced entirely with something
+    # simpler and stateless: a single admin password, reusing the
+    # SEIRA_ADMIN_TOKEN pattern already established for /api/admin/*
+    # below (same env var, same hmac.compare_digest timing-safe
+    # check). No accounts.json, no sessions.json, no per-session file
+    # storage of any kind — nothing left for that exact class of bug
+    # to happen to again.
+    #
+    # Critically, this touches ONLY the auth layer. Every route below
+    # still receives the identical account dict shape
+    # ({"account_id", "email", "tenant_id"}) from require_account, and
+    # _ADMIN_ACCOUNT's tenant_id is his real, existing tenant — so
+    # every one of his 32 conversations, his Corpus, Psyche, and Unity
+    # are immediately visible with zero migration, because nothing
+    # about how the rest of this app reads its data changed at all.
 
-    def current_account(request: Request) -> Optional[dict]:
-        return acct.resolve_session(request.cookies.get("seira_session", ""))
+    _ADMIN_ACCOUNT = {
+        "account_id": "admin", "email": "admin",
+        "tenant_id": os.environ.get("SEIRA_ADMIN_TENANT_ID", "t-21061631331e5ce8"),
+    }
+
+    def _admin_session_cookie_value() -> str:
+        """Stateless by design — no sessions.json, no per-session file
+        at all. A fixed value derived from SEIRA_ADMIN_TOKEN itself:
+        only someone who has submitted the correct token could ever
+        have received this from the server, so its mere presence in a
+        cookie is proof enough, with no lookup required to verify it."""
+        import hashlib
+        token = os.environ.get("SEIRA_ADMIN_TOKEN", "").strip()
+        return hashlib.sha256(f"seira-admin-session-v1:{token}".encode()).hexdigest()
 
     def require_account(request: Request) -> dict:
-        account = current_account(request)
-        if account is None:
+        configured = os.environ.get("SEIRA_ADMIN_TOKEN", "").strip()
+        if not configured:
+            raise HTTPException(status_code=500,
+                                detail="SEIRA_ADMIN_TOKEN is not configured — set it "
+                                       "in Railway's Variables tab to enable login.")
+        presented = request.cookies.get("seira_admin_session", "")
+        if not hmac.compare_digest(presented, _admin_session_cookie_value()):
             raise HTTPException(status_code=307, headers={"Location": "/login"})
-        return account
+        return _ADMIN_ACCOUNT
 
-    def _set_session(resp, token: str):
-        resp.set_cookie("seira_session", token, httponly=True,
-                        samesite="strict", max_age=3600 * 24 * 14)
+    def _set_session(resp):
+        resp.set_cookie("seira_admin_session", _admin_session_cookie_value(),
+                        httponly=True, samesite="strict", max_age=3600 * 24 * 365)
         return resp
 
     # ---------------- auth routes ----------------
 
-    @app.get("/signup", response_class=HTMLResponse)
-    def signup_page(request: Request):
-        if not _signups_enabled():
-            return HTMLResponse(_SIGNUPS_CLOSED_HTML, status_code=403)
-        return templates.TemplateResponse(request, "auth.html",
-                                          {"mode": "signup", "error": None,
-                                           "signups_enabled": True})
-
-    @app.post("/signup")
-    def signup(request: Request, email: str = Form(...), password: str = Form(...)):
-        if not _signups_enabled():
-            # Checked before create_account so a closed door creates
-            # nothing — no account row, no tenant tree, no session.
-            return HTMLResponse(_SIGNUPS_CLOSED_HTML, status_code=403)
-        try:
-            account = acct.create_account(email, password)
-        except acct.AccountError as e:
-            return templates.TemplateResponse(
-                request, "auth.html", {"mode": "signup", "error": str(e),
-                                       "signups_enabled": True},
-                status_code=400)
-        token = acct.create_session(account["account_id"])
-        return _set_session(RedirectResponse("/onboard", status_code=303), token)
-
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):
-        return templates.TemplateResponse(request, "auth.html",
-                                          {"mode": "login", "error": None,
-                                           "signups_enabled": _signups_enabled()})
+        configured = os.environ.get("SEIRA_ADMIN_TOKEN", "").strip()
+        return templates.TemplateResponse(
+            request, "admin_login.html",
+            {"error": None if configured else
+             "SEIRA_ADMIN_TOKEN is not configured on the server — "
+             "set it in Railway's Variables tab, then reload this page."})
 
     @app.post("/login")
-    def login(request: Request, email: str = Form(...), password: str = Form(...)):
-        account = acct.verify_login(email, password)
-        if account is None:
+    def login(request: Request, password: str = Form(...)):
+        configured = os.environ.get("SEIRA_ADMIN_TOKEN", "").strip()
+        if not configured or not hmac.compare_digest(password.strip(), configured):
             return templates.TemplateResponse(
-                request, "auth.html",
-                {"mode": "login", "error": "Email or password not recognized.",
-                 "signups_enabled": _signups_enabled()},
+                request, "admin_login.html", {"error": "Incorrect password."},
                 status_code=401)
-        token = acct.create_session(account["account_id"])
-        return _set_session(RedirectResponse("/", status_code=303), token)
+        return _set_session(RedirectResponse("/", status_code=303))
 
     @app.post("/logout")
     def logout(request: Request):
-        acct.destroy_session(request.cookies.get("seira_session", ""))
         resp = RedirectResponse("/login", status_code=303)
-        resp.delete_cookie("seira_session")
+        resp.delete_cookie("seira_admin_session")
         return resp
 
     # ---------------- onboarding = Genesis (Art. 22) ----------------
