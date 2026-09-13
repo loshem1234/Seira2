@@ -70,12 +70,29 @@ logger = logging.getLogger(__name__)
 SEIRA_MODEL = os.environ.get("SEIRA_MODEL", "claude-sonnet-5")
 
 
-def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
+def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None],
+                 disabled_toolsets: Optional[List[str]] = None):
     """Construct one AIAgent for this turn, wired to speak as her real
     self and to report tool activity through Sanctum's existing
     ``emit()`` event contract — no UI-side changes needed; the events
     her real tools produce simply replace the narrower set that used
-    to originate from the hand-rolled loop."""
+    to originate from the hand-rolled loop.
+
+    ``disabled_toolsets`` defaults to None (Hermes's own config.yaml
+    toolset settings apply unchanged) — every normal, human-initiated
+    turn is unaffected. Callers running unsupervised — autonomous
+    mode, Recollection, the weekly conversation summarizer — pass
+    disabled_toolsets=["delegation"] explicitly (2026-09-13): a real,
+    live credit drain, confirmed directly — she was autonomously
+    dispatching delegate_task again and again, the subagents
+    consistently returning empty, with nobody present to notice or
+    intervene. The underlying delegation bug itself was never actually
+    diagnosed (the original live traceback was never obtained), so
+    rather than try to catch and limit its failures after the fact,
+    the tool is simply unavailable wherever nobody is watching, until
+    it's genuinely fixed. A turn where the Architect is actually
+    present is different in kind — he can see it happen and step in —
+    so delegation stays available there."""
     from run_agent import AIAgent
 
     def _tool_start(tool_call_id, name, display_args):
@@ -169,6 +186,7 @@ def _build_agent(session_id: str, emit: Callable[[Dict[str, Any]], None]):
         load_soul_identity=True,   # her real identity, verified, halt-aware
         skip_memory=False,         # config-driven: loads memory.provider from config.yaml
         skip_context_files=True,   # a web chat has no project cwd to layer in
+        disabled_toolsets=disabled_toolsets,
         tool_start_callback=_tool_start,
         tool_complete_callback=_tool_complete,
         reasoning_callback=_reasoning,
@@ -294,7 +312,13 @@ def run_housekeeping_turn(prompt: str, tenant_id: str,
     emit = emit or (lambda e: None)
     synthetic_session_id = f"housekeeping-{tenant_id}-{uuid.uuid4().hex[:8]}"
     with tenant_scope(tenant_id), turn_context.turn_scope(tenant_id, synthetic_session_id):
-        agent = _build_agent(session_id=synthetic_session_id, emit=emit)
+        # Delegation unconditionally disabled here — every caller of
+        # this function is, by definition, unsupervised background
+        # work (the weekly summarizer, Recollection); there is no
+        # human-present use of run_housekeeping_turn to make this
+        # conditional on. See _build_agent's docstring for why.
+        agent = _build_agent(session_id=synthetic_session_id, emit=emit,
+                             disabled_toolsets=["delegation"])
         from agent.conversation_loop import run_conversation
         result = run_conversation(agent, user_message=prompt,
                                   conversation_history=history or [])
@@ -311,8 +335,14 @@ def run_turn_via_hermes(
     history: List[Dict[str, Any]],
     emit: Callable[[Dict[str, Any]], None],
     tenant_id: Optional[str] = None,
+    disabled_toolsets: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Run one turn as a real Hermes agent turn.
+
+    ``disabled_toolsets`` defaults to None — normal, human-present
+    turns are unaffected. Autonomous mode passes
+    disabled_toolsets=["delegation"] explicitly (see _build_agent's
+    docstring for the real, live reason).
 
     ``history`` is Sanctum's already-stored prior messages, in the
     same ``{"role", "content"}`` shape ``run_conversation`` expects.
@@ -331,7 +361,8 @@ def run_turn_via_hermes(
 
     def _run():
         emit({"event": "phase", "label": "Thinking"})
-        agent = _build_agent(session_id=conv_id or str(uuid.uuid4()), emit=emit)
+        agent = _build_agent(session_id=conv_id or str(uuid.uuid4()), emit=emit,
+                             disabled_toolsets=disabled_toolsets)
 
         # Her measured self-knowledge rides in the ephemeral tier, which
         # conversation_loop APPENDS after the stable identity tier — it can

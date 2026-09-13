@@ -194,7 +194,8 @@ def _run_one_turn(tenant_id: str, conv_id: str, prompt_text: str) -> None:
               "text": prompt_text})
         history = convs.model_history(conv_id)
         result = run_turn_via_hermes(conv_id, prompt_text, history, _emit,
-                                     tenant_id=tenant_id)
+                                     tenant_id=tenant_id,
+                                     disabled_toolsets=["delegation"])
         # run_turn_via_hermes already emits its own "reply" event
         # internally — not re-emitted here, or the live feed would
         # finalize the same reply twice.
