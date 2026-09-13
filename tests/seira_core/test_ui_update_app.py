@@ -233,7 +233,16 @@ def test_autonomy_status_includes_the_running_conversations_title(client, monkey
     tell WHICH conversation was actually running, especially confusing
     when viewing a different one. The status response must carry the
     conversation's real title, not just its raw id, so the frontend
-    can say so plainly."""
+    can say so plainly.
+
+    Real bug found and fixed (2026-09-13): the route itself never
+    wrapped its list_conversations() call in tenant_scope — this
+    earlier version of the test accidentally passed anyway, because
+    the setup below ran the actual request WHILE STILL INSIDE its own
+    tenant_scope block, masking the missing wrap with leftover ambient
+    context a real HTTP request would never have. The request now
+    runs after that block has already exited, the way a genuine
+    request actually arrives."""
     monkeypatch.setenv("SEIRA_SANCTUM_RUNTIME", "hermes")
     from seira_web import accounts as acct
     from seira_core.tenancy import tenant_scope
@@ -242,14 +251,14 @@ def test_autonomy_status_includes_the_running_conversations_title(client, monkey
     with tenant_scope(account["tenant_id"]):
         conv = convs.create_conversation("Kitchen Renovation Plans")
         autonomy.start(account["tenant_id"], conv["conv_id"], "creative")
-        try:
-            r = client.get("/api/autonomy/status")
-            data = r.json()
-            assert data["active"] is True
-            assert data["conv_id"] == conv["conv_id"]
-            assert data["conv_title"] == "Kitchen Renovation Plans"
-        finally:
-            autonomy.clear(account["tenant_id"])
+    try:
+        r = client.get("/api/autonomy/status")
+        data = r.json()
+        assert data["active"] is True
+        assert data["conv_id"] == conv["conv_id"]
+        assert data["conv_title"] == "Kitchen Renovation Plans"
+    finally:
+        autonomy.clear(account["tenant_id"])
 
 
 def test_autonomy_start_refused_outside_hermes_mode(client, monkeypatch):
