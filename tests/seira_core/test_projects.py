@@ -476,3 +476,19 @@ def test_create_file_is_summary_flag_reaches_the_reference(founded):
     }))
     rec = refs.resolve_ref(out["reference_tag"])
     assert rec["is_summary"] is True
+
+
+def test_sanctum_platform_does_not_duplicate_identity(founded):
+    """In Sanctum the identity is already served in the SOUL slot; the
+    provider block must carry only the operating note, not a 2nd copy."""
+    provider, conv_id = founded
+    provider.initialize("s1", platform="sanctum")
+    block = provider.system_prompt_block()
+    assert "OPERATING NOTE" in block
+    assert "# UNITY" not in block and "# INTELLECT" not in block
+
+
+def test_direct_mode_still_gets_full_identity(founded):
+    provider, conv_id = founded
+    provider.initialize("s2")
+    assert "# UNITY" in provider.system_prompt_block()
