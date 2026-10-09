@@ -895,6 +895,15 @@ def create_app(llm_client_factory=None) -> FastAPI:
                                                   status_code=503)
         return templates.TemplateResponse(request, "commands.html", {})
 
+    @app.get("/api/commands/context-report")
+    def commands_context_report(account: dict = Depends(require_account)):
+        """Read-only: what her context costs per turn, by layer."""
+        from seira_web.context_report import build_report
+        try:
+            return build_report(account["tenant_id"])
+        except Exception as e:
+            return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
     @app.post("/api/commands/recollection/run-now")
     def commands_recollection_run_now(account: dict = Depends(require_account)):
         """Runs in a background thread, not inline — a real
