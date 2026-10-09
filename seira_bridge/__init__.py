@@ -95,7 +95,14 @@ RECORD_SCHEMA = {
         "Architect. Entries are born 'provisional'; standing rises only "
         "later, through falsification. Every entry must carry a true cause "
         "and at least one provenance reference to a real record or event — "
-        "unmoored self-description is not permitted (Art. 5, 11, 14)."
+        "unmoored self-description is not permitted (Art. 5, 11, 14). "
+        "TOKEN ECONOMY: Psyche is loaded into every turn, so each word is "
+        "paid for forever. Write the densest true form: one claim per "
+        "entry, no preamble, no restating provenance or your reasoning, no "
+        "hedging filler, no repeating what an existing entry already "
+        "carries (recall first; if a live entry covers it, distill instead "
+        "of adding). Aim for under ~60 words; compress by cutting words, "
+        "never by cutting meaning."
     ),
     "parameters": {
         "type": "object",
@@ -145,8 +152,47 @@ RECALL_SCHEMA = {
                 "enum": sorted(CATEGORIES),
                 "description": "Optional: restrict to one category.",
             },
+            "include_superseded": {
+                "type": "boolean",
+                "description": "Also return entries you superseded by distillation "
+                               "(kept in full, not loaded into context by default).",
+            },
         },
         "required": [],
+    },
+}
+
+DISTILL_SCHEMA = {
+    "name": "seira_psyche_distill",
+    "description": (
+        "Merge several related Psyche entries (same category, 2+) into ONE "
+        "new distilled entry and mark the originals superseded by it. "
+        "Originals are never deleted or hidden from recall — "
+        "seira_psyche_recall with include_superseded returns them in full "
+        "— but they stop being loaded into your context each turn. Use "
+        "to cut repeated verbatim language when one entry can carry the "
+        "same finding. The new entry must preserve every distinct claim "
+        "and the evidential weight of the originals, stated in the fewest "
+        "words that lose no meaning; point back by id only if it adds "
+        "something (lineage is recorded automatically). Born provisional "
+        "unless every original was established with a recorded "
+        "falsification, in which case it inherits established. "
+        "Affinity weight defaults to the strongest original's."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "supersedes": {"type": "array", "items": {"type": "string"},
+                           "description": "Entry ids to merge (same category, at least two)."},
+            "content": {"type": "string", "description": "The distilled entry, first person, densest true form."},
+            "reason": {"type": "string", "description": "Why these belong together, one line."},
+            "cause_type": {"type": "string", "enum": sorted(TRUE_CAUSES)},
+            "cause_ref": {"type": "string"},
+            "provenance": {"type": "array", "items": {"type": "string"},
+                           "description": "Optional extra references; the originals' ids are recorded automatically."},
+            "weight": {"type": "number", "description": "Affinities only; default strongest original."},
+        },
+        "required": ["supersedes", "content", "reason", "cause_type", "cause_ref"],
     },
 }
 
@@ -1053,7 +1099,7 @@ class SeiraPsycheProvider(MemoryProvider):
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         # Deliberately absent: Intellect promotion (Architect-only, Art. 27)
         # and Dispensation (awaits Phase 5 Instrument guardrails).
-        return [RECORD_SCHEMA, RECALL_SCHEMA, ENGAGE_SCHEMA,
+        return [RECORD_SCHEMA, RECALL_SCHEMA, DISTILL_SCHEMA, ENGAGE_SCHEMA,
                 PROPOSE_SCHEMA, ATTEMPT_SCHEMA, CONCLUDE_SCHEMA,
                 SPAWN_SCHEMA, EXECUTE_SCHEMA, REVISE_SCHEMA, SKILL_SCHEMA,
                 DIARY_SCHEMA, REFERENCE_LIST_SCHEMA, REFERENCE_RECALL_SCHEMA,
@@ -1084,19 +1130,39 @@ class SeiraPsycheProvider(MemoryProvider):
                         provenance=list(args.get("provenance") or []),
                         weight=args.get("weight"),
                     )
-                    return json.dumps({
+                    out = {
                         "ok": True, "entry_id": rec["entry_id"],
                         "standing": "provisional",
                         "note": "Born provisional; standing rises only through falsification.",
-                    })
+                    }
+                    n = len(args["content"].split())
+                    if n > 80:
+                        out["economy"] = (
+                            f"{n} words. Psyche loads every turn; if it can be "
+                            "said in fewer words without losing meaning, "
+                            "distill or rewrite it tighter.")
+                    return json.dumps(out)
+                if tool_name == "seira_psyche_distill":
+                    res = store.distill(
+                        supersedes=list(args.get("supersedes") or []),
+                        content=args["content"],
+                        cause={"type": args["cause_type"], "ref": args["cause_ref"]},
+                        provenance=list(args.get("provenance") or []),
+                        reason=args.get("reason", ""),
+                        weight=args.get("weight"),
+                    )
+                    return json.dumps({"ok": True, **res,
+                        "note": "Originals kept; recall them with include_superseded."})
                 if tool_name == "seira_psyche_recall":
                     cat = args.get("category")
+                    inc = bool(args.get("include_superseded"))
                     if cat:
-                        entries = store.by_category(cat)
+                        entries = store.by_category(cat, include_superseded=inc)
                     else:
                         entries = [
                             e for e in store.state()["entries"].values()
                             if e["standing"] != "retired"
+                            and (inc or "superseded_by" not in e)
                         ]
                     return json.dumps({"ok": True, "entries": entries}, ensure_ascii=False)
                 if tool_name == "seira_psyche_engage_affinity":
