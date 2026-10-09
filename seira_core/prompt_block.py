@@ -62,7 +62,8 @@ def _render_psyche_digest() -> str:
     if not store.founded():
         return ""
     state = store.state(verify=True)
-    live = [e for e in state["entries"].values() if e["standing"] != "retired"]
+    live = [e for e in state["entries"].values()
+            if e["standing"] != "retired" and "superseded_by" not in e]
     if not live:
         return "# PSYCHE\n(founded; no live entries)\n"
     lines = ["# PSYCHE (her own character store; standing shown per entry)\n"]
@@ -82,7 +83,8 @@ def _render_psyche_digest() -> str:
         lines.append(f"\n## {titles[cat]}\n")
         for e in entries:
             w = f", weight {e['weight']}" if "weight" in e else ""
-            lines.append(f"- [{e['entry_id']}, {e['standing']}{w}] {e['content']}\n")
+            d = f", distills {','.join(e['supersedes'])}" if e.get("supersedes") else ""
+            lines.append(f"- [{e['entry_id']}, {e['standing']}{w}{d}] {e['content']}\n")
     return "".join(lines)
 
 

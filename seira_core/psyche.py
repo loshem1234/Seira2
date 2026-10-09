@@ -72,6 +72,7 @@ EVENT_ENTRY_ADDED = "entry_added"
 EVENT_STANDING_CHANGED = "standing_changed"
 EVENT_AFFINITY_ENGAGED = "affinity_engaged"
 EVENT_RETIRED = "entry_retired"
+EVENT_SUPERSEDED = "entry_superseded"
 
 
 class PsycheError(SeiraCoreError):
@@ -430,6 +431,14 @@ class PsycheStore:
                 e = entries.get(rec["entry_id"])
                 if e is not None:
                     e["weight"] = rec["weight"]
+            elif ev == EVENT_SUPERSEDED:
+                e = entries.get(rec["entry_id"])
+                if e is not None:
+                    e["superseded_by"] = rec["superseded_by"]
+                    e["superseded_reason"] = rec.get("reason", "")
+                    sup = entries.get(rec["superseded_by"])
+                    if sup is not None:
+                        sup.setdefault("supersedes", []).append(rec["entry_id"])
             elif ev == EVENT_RETIRED:
                 e = entries.get(rec["entry_id"])
                 if e is not None:
@@ -437,11 +446,91 @@ class PsycheStore:
                     e["retired_reason"] = rec["reason"]
         return {"founded": founded, "entries": entries, "event_count": len(records)}
 
-    def by_category(self, category: str, include_retired: bool = False) -> List[Dict[str, Any]]:
+    def by_category(
+        self, category: str, include_retired: bool = False,
+        include_superseded: bool = False,
+    ) -> List[Dict[str, Any]]:
         if category not in CATEGORIES:
             raise PsycheError(f"Unknown category {category!r}.")
         return [
             e for e in self.state()["entries"].values()
             if e["category"] == category
             and (include_retired or e["standing"] != "retired")
+            and (include_superseded or "superseded_by" not in e)
         ]
+
+    # ---------------- distillation / supersession ----------------
+
+    def distill(
+        self,
+        supersedes: List[str],
+        content: str,
+        cause: Dict[str, Any],
+        provenance: List[str],
+        reason: str,
+        weight: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Write one new entry that distills several same-category entries,
+        then mark each original superseded by it.
+
+        Nothing is deleted or retired: the originals stay in the chain and
+        remain recallable (``include_superseded``); they simply stop being
+        rendered into context. The new entry's provenance always includes
+        the originals' ids, so the lineage is checkable.
+
+        Standing: born provisional (Art. 33) — unless EVERY original was
+        established with a recorded falsification_ref, in which case the
+        distillation inherits ``established`` on that real falsification
+        (it restates a finding that already survived the attempt; it
+        asserts nothing new to be tested). Otherwise it must earn standing.
+        Affinity weight defaults to the strongest original's.
+        """
+        ids = []
+        for i in supersedes or []:
+            i = str(i).strip()
+            if i and i not in ids:
+                ids.append(i)
+        if len(ids) < 2:
+            raise PsycheError("Distillation needs at least two entries to merge.")
+        if not (reason or "").strip():
+            raise PsycheError("Distillation requires a stated reason.")
+        entries = self.state()["entries"]
+        originals = []
+        for i in ids:
+            e = entries.get(i)
+            if e is None:
+                raise PsycheError(f"No Psyche entry {i!r}.")
+            if e["standing"] == "retired":
+                raise PsycheError(f"{i} is retired and cannot be distilled.")
+            if "superseded_by" in e:
+                raise PsycheError(
+                    f"{i} is already superseded by {e['superseded_by']}.")
+            originals.append(e)
+        cats = {e["category"] for e in originals}
+        if len(cats) != 1:
+            raise PsycheError(
+                f"Entries span categories {sorted(cats)}; distill one "
+                "category at a time.")
+        category = cats.pop()
+        if category == "affinity" and weight is None:
+            weight = max(e.get("weight", 0.1) for e in originals)
+        elif category != "affinity":
+            weight = None
+        prov = list(provenance or []) + [f"distills:{i}" for i in ids]
+        new = self.add_entry(category, content, cause, prov, weight=weight)
+        new_id = new["entry_id"]
+        for i in ids:
+            self._append(EVENT_SUPERSEDED, {
+                "entry_id": i, "superseded_by": new_id, "reason": reason.strip()})
+            append_event("psyche_entry_superseded",
+                         {"entry_id": i, "superseded_by": new_id})
+        inherited = False
+        fals = [e.get("falsification_ref") for e in originals]
+        if all(e["standing"] == "established" for e in originals) and all(fals):
+            self.change_standing(
+                new_id, "established",
+                basis_ref=f"distillation of {', '.join(ids)}",
+                falsification_ref=fals[0])
+            inherited = True
+        return {"entry_id": new_id, "supersedes": ids,
+                "standing": "established" if inherited else "provisional"}
