@@ -6,3 +6,7 @@ seira_web/app.py                     (Console: superseded list)
 seira_web/templates/console.html
 tests/seira_core/test_psyche.py
 tests/seira_core/test_bridge.py
+(context report additions)
+seira_web/context_report.py          (NEW)
+seira_web/app.py                     (adds GET /api/commands/context-report)
+seira_web/templates/commands.html    (adds the "Measure her context" card)
