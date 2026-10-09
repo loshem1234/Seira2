@@ -1,0 +1,6 @@
+seira-cron-tool — upload each file to the same path in the repo
+seira_bridge/cron_tool.py            (NEW)
+seira_bridge/__init__.py             (registers seira_cron)
+cron/scheduler.py                    (cron-run agents can no longer delegate)
+tests/seira_core/test_cron_tool.py   (NEW)
+tests/seira_core/test_bridge.py
