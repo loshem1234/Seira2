@@ -29,6 +29,18 @@
     </div>
     <p class="muted" id="recollection-status" style="margin-top:.6rem"></p>
   </div>
+
+  <div class="card">
+    <h2>Context report</h2>
+    <p class="muted" style="margin:.2rem 0 .8rem">
+      A read-only look at what her context costs every turn, layer by
+      layer (identity and Psyche, system prompt, tools, conversation
+      history), and whether prompt caching and compression are on.
+      Estimates only. Changes nothing.
+    </p>
+    <button id="run-context-report" type="button">Measure her context</button>
+    <pre id="context-report" class="muted" style="white-space:pre-wrap; margin-top:.8rem"></pre>
+  </div>
 </div>
 
 <script>
@@ -55,6 +67,16 @@ document.getElementById('run-recollection').addEventListener('click', (e) => {
 document.getElementById('run-recollection-full').addEventListener('click', (e) => {
   runCommand('/api/commands/recollection/run-full',
     document.getElementById('recollection-status'), e.target);
+});
+
+document.getElementById('run-context-report').addEventListener('click', async (e) => {
+  const out = document.getElementById('context-report');
+  e.target.disabled = true; out.textContent = 'Measuring…';
+  try {
+    const r = await fetch('/api/commands/context-report');
+    out.textContent = JSON.stringify(await r.json(), null, 2);
+  } catch (err) { out.textContent = 'Could not reach the server.'; }
+  e.target.disabled = false;
 });
 </script>
 {% endblock %}
