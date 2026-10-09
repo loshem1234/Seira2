@@ -1,0 +1,3 @@
+seira-identity-dedupe — upload to the same paths
+seira_bridge/__init__.py            (identity no longer sent twice in Sanctum; includes the Psyche-distill + cron tool work)
+tests/seira_core/test_projects.py   (2 new tests)
