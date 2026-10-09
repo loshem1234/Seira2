@@ -778,6 +778,8 @@ WEEKLY_NOTES_READ_SCHEMA = {
 
 
 
+from seira_bridge.cron_tool import SCHEMA as CRON_SCHEMA
+
 REFERENCE_LIST_SCHEMA = {
     "name": "seira_reference_list",
     "description": "List documents the Architect has given her as references "
@@ -1066,7 +1068,7 @@ class SeiraPsycheProvider(MemoryProvider):
                 CONVERSATION_ADD_TAGS_SCHEMA, CONVERSATION_FIND_BY_TAG_SCHEMA,
                 CONVERSATION_LIST_TAGS_SCHEMA, RECOLLECTION_MARK_REVIEWED_SCHEMA,
                 RECOLLECTION_CONCLUDE_SCHEMA, WEEKLY_NOTES_WRITE_SCHEMA,
-                WEEKLY_NOTES_READ_SCHEMA,
+                WEEKLY_NOTES_READ_SCHEMA, CRON_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
 
@@ -1348,6 +1350,9 @@ class SeiraPsycheProvider(MemoryProvider):
                         return json.dumps({"ok": True, "seq": rec["seq"]})
                     except Exception as e:
                         return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_cron":
+                    from seira_bridge.cron_tool import handle as _cron_handle
+                    return _cron_handle(args)
                 if tool_name == "seira_weekly_notes_read":
                     from seira_core.weekly_notes import WeeklyNotesStore
                     entries = WeeklyNotesStore().entries()
