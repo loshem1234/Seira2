@@ -1060,6 +1060,14 @@ class SeiraPsycheProvider(MemoryProvider):
         with self._scope():
             from seira_core.tripwire import assert_not_halted
             assert_not_halted()
+        # Sanctum's Hermes agent is built with load_soul_identity=True, so
+        # the full identity block (Unity + Intellect + Psyche + project
+        # index) is already served in the system prompt's identity slot.
+        # Sending it a second time from here doubled ~half the fixed
+        # per-turn cost. Direct mode (no platform) still needs it here.
+        self._identity_in_soul = (
+            kwargs.get("platform") == "sanctum"
+            and os.environ.get("SEIRA_DUPLICATE_IDENTITY", "").strip() != "1")
 
     _OPERATING_NOTE = (
         "\n---\n# OPERATING NOTE (provider instructions, not identity)\n"
@@ -1075,6 +1083,12 @@ class SeiraPsycheProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         try:
             with self._scope():
+                if getattr(self, "_identity_in_soul", False):
+                    # Identity already in slot #1 — but still verify it
+                    # (halt + integrity) exactly as a render would.
+                    from seira_core.tripwire import assert_not_halted
+                    assert_not_halted()
+                    return self._OPERATING_NOTE.strip()
                 block = render_identity_block() + self._OPERATING_NOTE
                 # The one deliberate exception to "Corpus is recall-only":
                 # a concise index of what projects exist (name, one
