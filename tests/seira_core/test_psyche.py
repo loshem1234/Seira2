@@ -186,3 +186,73 @@ def test_identity_render_includes_psyche_with_standing(founded):
     assert "# PSYCHE" in text
     assert "provisional" in text  # standing always visible
     assert "I am at the beginning of knowing myself." in text
+
+
+# ---------------- distillation / supersession ----------------
+
+def _add(store, cat, text):
+    return store.add_entry(cat, text, CAUSE, ["t"])["entry_id"]
+
+
+def test_distill_supersedes_and_keeps_originals(founded):
+    a = _add(founded, "doubt", "I fabricate under momentum in erotica.")
+    b = _add(founded, "doubt", "I fabricate under momentum in images.")
+    res = founded.distill([a, b], "I fabricate under momentum (erotica, images).",
+                          CAUSE, [], "same finding")
+    st = founded.state()["entries"]
+    assert st[a]["superseded_by"] == res["entry_id"] == st[b]["superseded_by"]
+    assert set(st[res["entry_id"]]["supersedes"]) == {a, b}
+    assert "distills:" + a in st[res["entry_id"]]["provenance"]
+    assert st[a]["standing"] == "provisional"  # not retired, not deleted
+    live = [e["entry_id"] for e in founded.by_category("doubt")]
+    assert a not in live and res["entry_id"] in live
+    assert a in [e["entry_id"] for e in founded.by_category("doubt", include_superseded=True)]
+    founded.verify_chain()
+
+
+def test_distill_rejects_bad_input(founded):
+    a = _add(founded, "doubt", "x")
+    b = _add(founded, "aspiration", "y")
+    c = _add(founded, "doubt", "z")
+    with pytest.raises(PsycheError):
+        founded.distill([a], "n", CAUSE, [], "r")
+    with pytest.raises(PsycheError):
+        founded.distill([a, b], "n", CAUSE, [], "r")  # mixed categories
+    with pytest.raises(PsycheError):
+        founded.distill([a, "psy-99999"], "n", CAUSE, [], "r")
+    with pytest.raises(PsycheError):
+        founded.distill([a, c], "n", CAUSE, [], " ")
+    founded.distill([a, c], "n", CAUSE, [], "r")
+    with pytest.raises(PsycheError):  # already superseded
+        founded.distill([a, c], "n2", CAUSE, [], "r")
+
+
+def test_distill_inherits_established_only_if_all_established(founded):
+    a = _add(founded, "doubt", "p")
+    b = _add(founded, "doubt", "q")
+    c = _add(founded, "doubt", "r")
+    for i in (a, b):
+        founded.change_standing(i, "established", "basis", falsification_ref="fals-" + i)
+    r1 = founded.distill([a, b], "pq", CAUSE, [], "r")
+    assert r1["standing"] == "established"
+    assert founded.state()["entries"][r1["entry_id"]]["falsification_ref"] == "fals-" + a
+    d = _add(founded, "doubt", "s")
+    r2 = founded.distill([c, d], "rs", CAUSE, [], "r")
+    assert r2["standing"] == "provisional"
+
+
+def test_affinity_weight_defaults_to_strongest(founded):
+    a = founded.add_entry("affinity", "a", CAUSE, ["t"], weight=0.2)["entry_id"]
+    b = founded.add_entry("affinity", "b", CAUSE, ["t"], weight=0.6)["entry_id"]
+    r = founded.distill([a, b], "ab", CAUSE, [], "r")
+    assert founded.state()["entries"][r["entry_id"]]["weight"] == 0.6
+
+
+def test_superseded_not_rendered_into_prompt(founded):
+    from seira_core.prompt_block import _render_psyche_digest
+    a = _add(founded, "doubt", "OLDTEXTONE")
+    b = _add(founded, "doubt", "OLDTEXTTWO")
+    r = founded.distill([a, b], "NEWDISTILLED", CAUSE, [], "r")
+    out = _render_psyche_digest()
+    assert "NEWDISTILLED" in out and "OLDTEXT" not in out
+    assert f"distills {a},{b}" in out

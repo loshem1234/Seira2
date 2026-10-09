@@ -53,7 +53,7 @@ def test_tools_expose_no_intellect_or_unity_write(provider):
     Dispensation (Phase-5-gated) are deliberately absent."""
     names = [s["name"] for s in provider.get_tool_schemas()]
     assert names == [
-        "seira_psyche_record", "seira_psyche_recall", "seira_psyche_engage_affinity",
+        "seira_psyche_record", "seira_psyche_recall", "seira_psyche_distill", "seira_psyche_engage_affinity",
         "seira_propose_establishment", "seira_falsification_attempt",
         "seira_proposal_conclude",
         "seira_instrument_spawn", "seira_instrument_execute",
