@@ -1,0 +1,9 @@
+seira-psyche-distill — upload each file to the same path in the repo
+seira_core/psyche.py                 (supersession event + distill)
+seira_core/prompt_block.py           (superseded entries no longer rendered)
+seira_bridge/__init__.py             (seira_psyche_distill, recall include_superseded, token-economy guidance)
+seira_web/app.py                     (Console: superseded list)
+seira_web/templates/console.html
+seira_web/templates/chat.html        (tool label)
+tests/seira_core/test_psyche.py
+tests/seira_core/test_bridge.py
