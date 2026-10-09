@@ -47,6 +47,12 @@
       {{ e.content }}
     </div>
     {% else %}<p class="muted">No live entries yet.</p>{% endfor %}
+    {% if psyche_superseded %}
+    <details><summary class="muted">{{ psyche_superseded|length }} superseded (kept, not loaded into her context)</summary>
+      {% for e in psyche_superseded %}
+      <div class="entry"><span class="muted">{{ e.entry_id }} · {{ e.category }} · superseded by {{ e.superseded_by }}</span><br>{{ e.content }}</div>
+      {% endfor %}
+    </details>{% endif %}
   </div>
 </div>
 
