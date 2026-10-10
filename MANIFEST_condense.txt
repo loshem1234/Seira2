@@ -1,0 +1,4 @@
+seira-psyche-condense — upload to the same paths
+seira_core/psyche.py
+seira_bridge/__init__.py
+tests/seira_core/test_psyche.py
