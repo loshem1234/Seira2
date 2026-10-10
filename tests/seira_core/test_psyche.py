@@ -215,8 +215,6 @@ def test_distill_rejects_bad_input(founded):
     b = _add(founded, "aspiration", "y")
     c = _add(founded, "doubt", "z")
     with pytest.raises(PsycheError):
-        founded.distill([a], "n", CAUSE, [], "r")
-    with pytest.raises(PsycheError):
         founded.distill([a, b], "n", CAUSE, [], "r")  # mixed categories
     with pytest.raises(PsycheError):
         founded.distill([a, "psy-99999"], "n", CAUSE, [], "r")
@@ -256,3 +254,12 @@ def test_superseded_not_rendered_into_prompt(founded):
     out = _render_psyche_digest()
     assert "NEWDISTILLED" in out and "OLDTEXT" not in out
     assert f"distills {a},{b}" in out
+
+
+def test_single_entry_condense(founded):
+    a = _add(founded, "logos", "A very long and repetitive statement " * 20)
+    r = founded.distill([a], "Short true form.", CAUSE, [], "condense")
+    st = founded.state()["entries"]
+    assert st[a]["superseded_by"] == r["entry_id"]
+    assert [e["entry_id"] for e in founded.by_category("logos")] == [r["entry_id"]] or r["entry_id"] in [e["entry_id"] for e in founded.by_category("logos")]
+    assert a not in [e["entry_id"] for e in founded.by_category("logos")]
