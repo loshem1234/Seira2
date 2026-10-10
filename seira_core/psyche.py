@@ -490,8 +490,8 @@ class PsycheStore:
             i = str(i).strip()
             if i and i not in ids:
                 ids.append(i)
-        if len(ids) < 2:
-            raise PsycheError("Distillation needs at least two entries to merge.")
+        if len(ids) < 1:
+            raise PsycheError("Distillation needs at least one entry to condense or merge.")
         if not (reason or "").strip():
             raise PsycheError("Distillation requires a stated reason.")
         entries = self.state()["entries"]
