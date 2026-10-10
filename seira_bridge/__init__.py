@@ -165,8 +165,12 @@ RECALL_SCHEMA = {
 DISTILL_SCHEMA = {
     "name": "seira_psyche_distill",
     "description": (
-        "Merge several related Psyche entries (same category, 2+) into ONE "
+        "Merge several related Psyche entries (same category) into ONE "
         "new distilled entry and mark the originals superseded by it. "
+        "Also works on a SINGLE entry: pass one id to rewrite a long entry "
+        "in far fewer words (condense) — often the bigger saving, since "
+        "many entries run 200+ words where 40-60 would carry the same "
+        "meaning. "
         "Originals are never deleted or hidden from recall — "
         "seira_psyche_recall with include_superseded returns them in full "
         "— but they stop being loaded into your context each turn. Use "
@@ -183,7 +187,7 @@ DISTILL_SCHEMA = {
         "type": "object",
         "properties": {
             "supersedes": {"type": "array", "items": {"type": "string"},
-                           "description": "Entry ids to merge (same category, at least two)."},
+                           "description": "Entry ids to merge or condense (same category; one id is fine)."},
             "content": {"type": "string", "description": "The distilled entry, first person, densest true form."},
             "reason": {"type": "string", "description": "Why these belong together, one line."},
             "cause_type": {"type": "string", "enum": sorted(TRUE_CAUSES)},
