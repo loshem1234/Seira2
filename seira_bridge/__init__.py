@@ -786,6 +786,39 @@ RECOLLECTION_CONCLUDE_SCHEMA = {
     "parameters": {"type": "object", "properties": {}, "required": []},
 }
 
+LONGEST_SCHEMA = {
+    "name": "seira_psyche_longest",
+    "description": (
+        "List your live Psyche entries ranked by length (id, category, "
+        "tokens, words) — the quickest way to find where condensing would "
+        "help. Entries you previously chose to keep as written are "
+        "excluded unless include_kept is true. Read an entry with "
+        "seira_psyche_recall; condense or merge with seira_psyche_distill."
+    ),
+    "parameters": {"type": "object", "properties": {
+        "limit": {"type": "integer", "description": "How many (default 25)."},
+        "include_kept": {"type": "boolean"}}, "required": []},
+}
+
+DISTILLATION_CONCLUDE_SCHEMA = {
+    "name": "seira_distillation_conclude",
+    "description": (
+        "End this Psyche Distillation session. Give a short, honest "
+        "summary of what you condensed or merged and what you chose to "
+        "leave. Entries you decided should stay exactly as written go in "
+        "kept_as_is with your reason — they are not raised again. You "
+        "have the final call on anything where compression would cost "
+        "real substance. Refuses before a minimum turn count."
+    ),
+    "parameters": {"type": "object", "properties": {
+        "summary": {"type": "string"},
+        "kept_as_is": {"type": "array", "items": {"type": "object",
+            "properties": {"entry_id": {"type": "string"},
+                           "reason": {"type": "string"}},
+            "required": ["entry_id", "reason"]}}},
+        "required": ["summary"]},
+}
+
 WEEKLY_NOTES_WRITE_SCHEMA = {
     "name": "seira_weekly_notes_write",
     "description": (
@@ -1132,6 +1165,7 @@ class SeiraPsycheProvider(MemoryProvider):
                 CONVERSATION_ADD_TAGS_SCHEMA, CONVERSATION_FIND_BY_TAG_SCHEMA,
                 CONVERSATION_LIST_TAGS_SCHEMA, RECOLLECTION_MARK_REVIEWED_SCHEMA,
                 RECOLLECTION_CONCLUDE_SCHEMA, WEEKLY_NOTES_WRITE_SCHEMA,
+                LONGEST_SCHEMA, DISTILLATION_CONCLUDE_SCHEMA,
                 WEEKLY_NOTES_READ_SCHEMA, CRON_SCHEMA,
                 CREATE_FILE_SCHEMA, IMAGE_RECALL_SCHEMA,
                 IMAGE_TAG_SCHEMA, IMAGE_LIST_SCHEMA, GENERATE_IMAGE_SCHEMA]
@@ -1415,6 +1449,21 @@ class SeiraPsycheProvider(MemoryProvider):
                     tenant_id, _ = ctx
                     try:
                         recollection.request_conclude(tenant_id)
+                        return json.dumps({"ok": True})
+                    except ValueError as e:
+                        return json.dumps({"ok": False, "error": str(e)})
+                if tool_name == "seira_psyche_longest":
+                    from seira_web import distillation
+                    return json.dumps({"ok": True, "entries": distillation.longest_entries(
+                        int(args.get("limit") or 25), bool(args.get("include_kept")))})
+                if tool_name == "seira_distillation_conclude":
+                    from seira_web import turn_context, distillation
+                    ctx = turn_context.current()
+                    if ctx is None:
+                        return json.dumps({"ok": False, "error": "Could not determine which session this is."})
+                    try:
+                        distillation.request_conclude(
+                            ctx[0], args.get("summary", ""), list(args.get("kept_as_is") or []))
                         return json.dumps({"ok": True})
                     except ValueError as e:
                         return json.dumps({"ok": False, "error": str(e)})
