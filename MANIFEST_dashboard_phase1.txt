@@ -1,0 +1,3 @@
+Seira dashboard — Phase 1 (immersive shell + status chip). Replace these 2 files:
+  seira_web/templates/chat.html
+  seira_web/static/style.css
