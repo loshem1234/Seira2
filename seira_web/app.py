@@ -904,6 +904,15 @@ def create_app(llm_client_factory=None) -> FastAPI:
         except Exception as e:
             return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
 
+    @app.get("/api/commands/schedule")
+    def commands_schedule(account: dict = Depends(require_account)):
+        """Fixed weekly slots + last/next run for each routine."""
+        from seira_web import weekly_scheduler
+        try:
+            return weekly_scheduler.status(account["tenant_id"])
+        except Exception as e:
+            return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
     @app.get("/api/commands/distillation/status")
     def commands_distillation_status(account: dict = Depends(require_account)):
         """Psyche size line + last Distillation run (read-only)."""
@@ -922,13 +931,9 @@ def create_app(llm_client_factory=None) -> FastAPI:
         with tenant_scope(tenant_id):
             if is_halted():
                 return JSONResponse({"message": "She is halted; not starting."}, status_code=503)
-        if distillation.is_session_active(tenant_id):
-            return {"message": "A Distillation session is already running."}
-        import threading
-        threading.Thread(target=distillation.run_now, args=(tenant_id,),
-                         name="seira-distillation-manual", daemon=True).start()
-        return {"message": "Distillation started in the background. Check the "
-                           "Psyche line here in a few minutes."}
+        from seira_web import weekly_scheduler
+        ok, msg = weekly_scheduler.try_start_manual("distillation", tenant_id)
+        return {"message": msg + (" Check the Psyche line here in a few minutes." if ok else "")}
 
     @app.post("/api/commands/recollection/run-now")
     def commands_recollection_run_now(account: dict = Depends(require_account)):
@@ -937,11 +942,11 @@ def create_app(llm_client_factory=None) -> FastAPI:
         hold an HTTP request open waiting for it. Returns immediately;
         the session itself remains fully invisible, same as the
         automatic weekly pass."""
-        import threading
-        from seira_web import recollection
+        from seira_web import weekly_scheduler
         tenant_id = account["tenant_id"]
-        threading.Thread(target=recollection.run_now, args=(tenant_id,),
-                         name="seira-recollection-manual", daemon=True).start()
+        ok, msg = weekly_scheduler.try_start_manual("recollection", tenant_id)
+        if not ok:
+            return JSONResponse({"ok": False, "message": msg})
         return JSONResponse({"ok": True,
                             "message": "Recollection started — this runs in the "
                                       "background and isn't visible anywhere; "
@@ -953,11 +958,11 @@ def create_app(llm_client_factory=None) -> FastAPI:
         this one run, without mutating any existing
         recollection_processed_at data — see
         seira_web.recollection.run_full_reprocess."""
-        import threading
-        from seira_web import recollection
+        from seira_web import weekly_scheduler
         tenant_id = account["tenant_id"]
-        threading.Thread(target=recollection.run_full_reprocess, args=(tenant_id,),
-                         name="seira-recollection-manual-full", daemon=True).start()
+        ok, msg = weekly_scheduler.try_start_manual("recollection_full", tenant_id)
+        if not ok:
+            return JSONResponse({"ok": False, "message": msg})
         return JSONResponse({"ok": True,
                             "message": "Full reprocess started — this treats every "
                                       "conversation as needing review, in the "

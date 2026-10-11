@@ -15,7 +15,7 @@ and ceiling, a conclude tool, stop on errored turns, halt-aware.
 Measurement is done by code, not self-report: Psyche's size is measured
 before and after and logged.
 
-Runs at most once per 7 days per tenant (survives restarts — last run
+Runs at most once per ~week per tenant (survives restarts — last run
 is read from disk) and only if there is something to do (first run, or
 live entries created since the last pass). Manual trigger on Commands.
 """
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 MIN_TURNS = 3
 MAX_TURNS = 12
-MIN_DAYS_BETWEEN_RUNS = 7
+MIN_DAYS_BETWEEN_RUNS = 6   # < 7 so a weekly slot is never skipped by a long previous run
 CHARS_PER_TOKEN = 3.6
 
 _stop_event: Optional[threading.Event] = None
