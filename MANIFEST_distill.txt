@@ -1,0 +1,10 @@
+seira-weekly-distillation — upload each file to the same path in the repo
+NEW   seira_web/distillation.py              (the weekly routine + log + Psyche size)
+NEW   tests/seira_core/test_distillation.py
+EDIT  seira_web/__main__.py                  (starts the weekly loop; SEIRA_DISABLE_DISTILLATION=1 turns it off)
+EDIT  seira_web/app.py                       (Commands endpoints: distillation status/run-now)
+EDIT  seira_web/templates/commands.html      (Psyche size line + Run Distillation button)
+EDIT  seira_web/context_report.py            (history section now lists your real chats)
+EDIT  seira_core/psyche.py                   (write lock so concurrent Psyche writes can't collide)
+EDIT  seira_bridge/__init__.py               (seira_psyche_longest, seira_distillation_conclude)
+EDIT  tests/seira_core/test_bridge.py
