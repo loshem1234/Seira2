@@ -6,10 +6,21 @@
 <div class="shell" id="shell">
   <div class="backdrop" id="backdrop"></div>
   <aside class="sidebar" id="sidebar">
-    <button class="gold newchat" id="newchat">New conversation</button>
+    <div class="railbrand">
+      <svg class="sigil" viewBox="0 0 30 44" aria-hidden="true">
+        <g class="sigil-pulse"><circle class="circle" cx="11" cy="14" r="9"/>
+        <circle class="circle" cx="19" cy="14" r="9"/>
+        <circle class="pt" cx="15" cy="14" r="1.7"/></g>
+        <line class="ray" x1="15" y1="16" x2="15" y2="42"/></svg>
+      <span class="wordmark">Seira</span>
+    </div>
+    <button class="gold newchat" id="newchat">+ New conversation</button>
+    <input type="search" class="railsearch" id="railsearch" placeholder="Search conversations"
+           autocomplete="off" aria-label="Search conversations">
+    <div class="convolist" id="convolist">
     {% for c in conversations %}
     <div class="convo-row {{ 'active' if c.conv_id == active_id else '' }}"
-         data-conv-id="{{ c.conv_id }}">
+         data-conv-id="{{ c.conv_id }}" data-updated="{{ c.updated }}">
       <a class="convo" href="/?c={{ c.conv_id }}"
          {% if c.summary_bullets %}title="{{ c.summary_bullets|join(' · ') }}"{% endif %}
          >{{ c.title }}</a>
@@ -37,6 +48,16 @@
       {% endif %}
     </div>
     {% endfor %}
+    </div>
+    <nav class="railnav" aria-label="Sections">
+      <a href="/diary">Her Diary</a>
+      <a href="/weekly-notes">Her Weekly Notes</a>
+      <a href="/archive">Archive</a>
+      <a href="/console">Console</a>
+      <a href="/commands">Commands</a>
+      <a href="/api/export">Export My Seira</a>
+      <form method="post" action="/logout"><button type="submit">Log out</button></form>
+    </nav>
   </aside>
   <div class="chatcol" id="chatcol">
     <div class="embers" aria-hidden="true">
@@ -53,12 +74,22 @@
       <span class="ember" style="--x:38%; --dur:10.8s; --delay:9.4s; --size:.19rem;"></span>
       <span class="ember" style="--x:60%; --dur:13s;  --delay:.2s;  --size:.16rem;"></span>
     </div>
-    <div class="autonomybar" id="autonomybar" hidden>
-      <span class="orb"></span>
-      <span id="autonomylabel">Running on her own</span>
-      <button class="gold" id="autonomystop" type="button">Stop</button>
-      <button id="autonomyforceclear" type="button" title="Clear a stuck status display — does not guarantee background work has actually stopped; only a full restart guarantees that">Force clear</button>
-    </div>
+    <header class="chathead">
+      <button class="railbtn" id="railbtn" type="button" aria-label="Conversations and menu">
+        <span></span><span></span><span></span></button>
+      <div class="chattitle" id="chattitle">{% for c in conversations %}{% if c.conv_id == active_id %}{{ c.title }}{% endif %}{% endfor %}</div>
+      <div class="statuschip" id="autonomybar" hidden>
+        <button class="chipbtn" id="chipbtn" type="button" aria-expanded="false">
+          <span class="orb"></span><span id="chipshort">Active</span></button>
+        <div class="chippop" id="chippop" hidden>
+          <div id="autonomylabel">Running</div>
+          <div class="chiprow" id="chipactions">
+            <button class="gold" id="autonomystop" type="button">Stop</button>
+            <button id="autonomyforceclear" type="button" title="Clear a stuck status display — does not guarantee background work has actually stopped; only a full restart guarantees that">Force clear</button>
+          </div>
+        </div>
+      </div>
+    </header>
     <div class="msgs" id="msgs">
       {% for r in history %}
         {% if r.kind == 'user' %}
@@ -123,7 +154,7 @@
           <div class="traysection">
             <span class="trayheading">Mode</span>
             <span class="muted" style="font-size:.82rem">She acts on her own, unprompted,
-              until stopped — a real, running kill switch appears above the chat while active.</span>
+              until stopped — a small status chip with a Stop button appears at the top of the chat while active.</span>
             <select id="modeselect">
               <option value="" selected>Off</option>
               <option value="exploration">Exploration — search, discovery, save from the web</option>
@@ -525,6 +556,7 @@ sidebar.addEventListener('click', async (e) => {
       newLink.className = 'convo'; newLink.href = '/?c=' + convId;
       newLink.textContent = d.ok ? d.title : current;
       input.replaceWith(newLink);
+      if (d.ok && convId === CONV) document.getElementById('chattitle').textContent = d.title;
     };
     input.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') input.blur();
@@ -579,11 +611,76 @@ document.getElementById('backdrop').addEventListener('click', () => setSidebar(f
 // Replaces the earlier capture-phase #chatcol/#msgs listeners, which
 // should have worked but evidently didn't reliably in practice.
 document.addEventListener('click', (e) => {
+  if (window.innerWidth > 800) return;  // desktop: the rail stays put
   if (shell.classList.contains('sidebar-collapsed')) return;  // already closed
-  if (e.target.closest('#sidebar') || e.target.closest('#edgetab')) return;
+  if (e.target.closest('#sidebar') || e.target.closest('#edgetab') || e.target.closest('#railbtn')) return;
   setSidebar(false);
 });
 setSidebar(window.innerWidth > 800);
+document.getElementById('railbtn').addEventListener('click', () =>
+  setSidebar(shell.classList.contains('sidebar-collapsed')));
+
+// Swipe: right from the left edge opens the rail, left anywhere on it closes
+// (phone). Horizontal intent only, so vertical scrolling is never hijacked.
+(function () {
+  let sx = 0, sy = 0, tracking = false;
+  document.addEventListener('touchstart', (e) => {
+    if (window.innerWidth > 800 || e.touches.length !== 1) return;
+    const t = e.touches[0]; sx = t.clientX; sy = t.clientY;
+    tracking = shell.classList.contains('sidebar-collapsed') ? sx < 28 : true;
+  }, {passive: true});
+  document.addEventListener('touchend', (e) => {
+    if (!tracking) return; tracking = false;
+    const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+    const closed = shell.classList.contains('sidebar-collapsed');
+    if (closed && dx > 0) setSidebar(true);
+    else if (!closed && dx < 0) setSidebar(false);
+  }, {passive: true});
+})();
+
+// Rail: group conversations by recency, and filter as you type.
+(function () {
+  const list = document.getElementById('convolist');
+  const rows = [...list.querySelectorAll('.convo-row')];
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const today = startOfDay(new Date());
+  function bucket(iso) {
+    const d = new Date(iso); if (isNaN(d)) return 'Earlier';
+    const days = Math.round((today - startOfDay(d)) / 86400000);
+    if (days <= 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return 'This week';
+    if (days < 31) return 'This month';
+    return 'Earlier';
+  }
+  let last = null;
+  rows.forEach(r => {
+    const b = bucket(r.dataset.updated);
+    if (b !== last) {
+      const h = document.createElement('div');
+      h.className = 'railgroup'; h.textContent = b;
+      list.insertBefore(h, r); last = b;
+    }
+  });
+  const active = list.querySelector('.convo-row.active');
+  // (scrollTop, not scrollIntoView: that would also scroll the page sideways
+  // when the phone drawer is parked off-screen.)
+  if (active) list.scrollTop = Math.max(0, active.offsetTop - list.offsetTop - 60);
+  const box = document.getElementById('railsearch');
+  box.addEventListener('input', () => {
+    const q = box.value.trim().toLowerCase();
+    rows.forEach(r => {
+      const t = (r.querySelector('.convo, .convo-rename-input')?.textContent || '').toLowerCase();
+      r.hidden = !!q && !t.includes(q);
+    });
+    list.querySelectorAll('.railgroup').forEach(h => {
+      let n = h.nextElementSibling, any = false;
+      while (n && !n.classList.contains('railgroup')) { if (!n.hidden) any = true; n = n.nextElementSibling; }
+      h.hidden = !any;
+    });
+  });
+})();
 
 // A summary popover stays open until something else asks it to close —
 // clicking anywhere outside it (including a different conversation
@@ -731,12 +828,40 @@ function connectAutonomyLiveFeed() {
   };
 }
 
-function renderAutonomyStatus(s) {
+// ── Status chip ─────────────────────────────────────────────────────
+// One small chip in the chat header. It shows up only when something is
+// actually running: an autonomous mode (live N/max turns, Stop, Force
+// clear) or one of her weekly routines (read-only). Tap it for details.
+const chipbtn = document.getElementById('chipbtn');
+const chippop = document.getElementById('chippop');
+const chipshort = document.getElementById('chipshort');
+const chipactions = document.getElementById('chipactions');
+chipbtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  chippop.hidden = !chippop.hidden;
+  chipbtn.setAttribute('aria-expanded', String(!chippop.hidden));
+});
+document.addEventListener('click', (e) => {
+  if (!chippop.hidden && !e.target.closest('#autonomybar')) {
+    chippop.hidden = true; chipbtn.setAttribute('aria-expanded', 'false'); }
+});
+let lastAutonomy = {active: false};
+let routineRunning = null;
+const ROUTINE_NAMES = {summaries: 'Summaries', recollection: 'Recollection',
+  distillation: 'Distillation', recollection_full: 'Full recollection'};
+
+function paintChip() {
+  const s = lastAutonomy;
+  if (!s.active && !routineRunning) { autonomybar.hidden = true; chippop.hidden = true; return; }
+  autonomybar.hidden = false;
   if (!s.active) {
-    autonomybar.hidden = true;
+    const nm = ROUTINE_NAMES[routineRunning] || routineRunning;
+    chipshort.textContent = nm;
+    autonomylabel.textContent = `Weekly routine running: ${nm}. It finishes on its own.`;
+    chipactions.hidden = true;
     return;
   }
-  autonomybar.hidden = false;
+  chipactions.hidden = false;
   const MODE_NAMES = {exploration: 'Exploration', creative: 'Creative',
     contemplation: 'Contemplation', triadic: 'Triadic', full_autonomy: 'Full Autonomy'};
   const TRIADIC_PHASES = ['Phaenic dreaming', 'Anthrian interpretation', 'grounding in Giaon'];
@@ -746,15 +871,11 @@ function renderAutonomyStatus(s) {
   const startedByNote = s.started_by === 'self' ? ' (her own initiative)' : '';
   const mins = Math.floor((s.elapsed_seconds || 0) / 60);
   const elapsed = mins < 1 ? 'just started' : `running ${mins}m`;
+  chipshort.textContent = s.stopping ? 'Stopping…' : `${modeName} ${s.turn_count}/${AUTONOMY_MAX_TURNS}`;
   const statusText = s.stopping
     ? `${modeName}${startedByNote} — finishing her current turn, then stopping… (${elapsed})`
     : `${modeName}${startedByNote} — turn ${s.turn_count}/${AUTONOMY_MAX_TURNS}${phaseNote} (${elapsed})`;
-
-  // Real gap this closes: the bar used to show "active" regardless of
-  // which conversation you actually had open, with no way to tell
-  // whether it was THIS chat or a different one running in the
-  // background — confusing if you're looking at chat A while
-  // something started earlier in chat B is what's actually running.
+  // Which chat is she running in? (could be a different one than this)
   if (s.conv_id && s.conv_id !== CONV) {
     const name = esc(s.conv_title || 'another conversation');
     autonomylabel.innerHTML = `${esc(statusText)} — running in `
@@ -763,6 +884,15 @@ function renderAutonomyStatus(s) {
   } else {
     autonomylabel.textContent = statusText;
   }
+}
+
+function renderAutonomyStatus(s) { lastAutonomy = s || {active: false}; paintChip(); }
+
+async function pollRoutineStatus() {
+  try {
+    const r = await fetch('/api/commands/schedule');
+    if (r.ok) { routineRunning = (await r.json()).running || null; paintChip(); }
+  } catch (e) { /* transient */ }
 }
 
 async function pollAutonomyStatus() {
@@ -824,6 +954,8 @@ forceClearBtn.addEventListener('click', async () => {
 connectAutonomyLiveFeed();
 pollAutonomyStatus();
 setInterval(pollAutonomyStatus, 15000);
+pollRoutineStatus();
+setInterval(pollRoutineStatus, 30000);
 
 requestAnimationFrame(scrollEnd);
 </script>
