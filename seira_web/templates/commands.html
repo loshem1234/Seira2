@@ -9,6 +9,17 @@
   </p>
 
   <div class="card">
+    <h2>Weekly schedule</h2>
+    <p class="muted" style="margin:.2rem 0 .8rem">
+      Her weekly routines run one at a time, each in its own fixed slot,
+      so they never pile up. A restart or deploy does not re-run one that
+      already ran this week. The buttons below still start any of them
+      manually.
+    </p>
+    <div id="schedule-table" class="muted">Loading…</div>
+  </div>
+
+  <div class="card">
     <h2>Recollection</h2>
     <p class="muted" style="margin:.2rem 0 .8rem">
       Her weekly self-examination — stepping back across her
@@ -84,6 +95,22 @@ document.getElementById('run-recollection-full').addEventListener('click', (e) =
     document.getElementById('recollection-status'), e.target);
 });
 
+
+async function loadSchedule() {
+  const el = document.getElementById('schedule-table');
+  try {
+    const r = await fetch('/api/commands/schedule'); const d = await r.json();
+    if (d.error) { el.textContent = 'Could not read the schedule.'; return; }
+    const fmt = (iso) => iso ? new Date(iso).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—';
+    el.innerHTML = (d.running ? '<p>Running now: ' + d.running + '</p>' : '') +
+      '<table style="width:100%; border-collapse:collapse">' +
+      '<tr><th align="left">Routine</th><th align="left">Slot (' + d.timezone + ')</th><th align="left">Last run</th><th align="left">Next</th></tr>' +
+      d.routines.map(x => '<tr><td>' + x.label + (x.enabled ? '' : ' (off)') + '</td><td>' + x.slot +
+        '</td><td>' + fmt(x.last_run) + (x.last_outcome && x.last_outcome !== 'ok' && x.last_outcome !== 'baseline' ? ' — ' + x.last_outcome : '') +
+        '</td><td>' + fmt(x.next_run) + '</td></tr>').join('') + '</table>';
+  } catch (e) { el.textContent = 'Could not reach the server.'; }
+}
+loadSchedule();
 
 async function loadDistillation() {
   try {
