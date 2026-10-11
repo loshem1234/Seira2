@@ -31,6 +31,21 @@
   </div>
 
   <div class="card">
+    <h2>Psyche Distillation</h2>
+    <p class="muted" style="margin:.2rem 0 .8rem">
+      Her weekly tending of her own Psyche: condensing long entries and
+      merging overlaps so what loads into every turn stays dense. Runs
+      automatically once a week when there is something new; she keeps
+      the final call on anything where compression would cost real
+      substance. Originals are never deleted.
+    </p>
+    <p id="psyche-size" style="margin:.2rem 0 .6rem">Loading Psyche size…</p>
+    <p class="muted" id="distill-last" style="margin:.2rem 0 .8rem"></p>
+    <button class="gold" id="run-distillation" type="button">Run Distillation now</button>
+    <p class="muted" id="distillation-status" style="margin-top:.6rem"></p>
+  </div>
+
+  <div class="card">
     <h2>Context report</h2>
     <p class="muted" style="margin:.2rem 0 .8rem">
       A read-only look at what her context costs every turn, layer by
@@ -68,6 +83,34 @@ document.getElementById('run-recollection-full').addEventListener('click', (e) =
   runCommand('/api/commands/recollection/run-full',
     document.getElementById('recollection-status'), e.target);
 });
+
+
+async function loadDistillation() {
+  try {
+    const r = await fetch('/api/commands/distillation/status');
+    const d = await r.json();
+    if (d.error) { document.getElementById('psyche-size').textContent = 'Could not read Psyche size.'; return; }
+    const cats = Object.entries(d.psyche.by_category).sort((a,b)=>b[1]-a[1])
+      .map(([k,v]) => k + ' ' + v.toLocaleString()).join(' · ');
+    document.getElementById('psyche-size').textContent =
+      'Psyche: ~' + d.psyche.tokens.toLocaleString() + ' tokens across ' +
+      d.psyche.live_entries + ' live entries (' + cats + ')';
+    const lr = d.last_run;
+    document.getElementById('distill-last').textContent = d.running
+      ? 'A Distillation session is running now.'
+      : (lr ? 'Last run ' + lr.finished_at.slice(0,10) + ' (' + lr.outcome + ', ' + lr.turns +
+          ' turns): ~' + lr.tokens_before.toLocaleString() + ' → ~' + lr.tokens_after.toLocaleString() +
+          ' tokens.' + (lr.summary ? ' ' + lr.summary : '') +
+          (d.kept_as_is_count ? ' Kept as written: ' + d.kept_as_is_count + '.' : '')
+        : 'No Distillation has run yet.');
+  } catch (e) { document.getElementById('psyche-size').textContent = 'Could not reach the server.'; }
+}
+document.getElementById('run-distillation').addEventListener('click', async (e) => {
+  await runCommand('/api/commands/distillation/run-now',
+    document.getElementById('distillation-status'), e.target);
+  setTimeout(loadDistillation, 3000);
+});
+loadDistillation();
 
 document.getElementById('run-context-report').addEventListener('click', async (e) => {
   const out = document.getElementById('context-report');
