@@ -1,0 +1,7 @@
+seira-weekly-scheduler — upload each file to the same path in the repo
+NEW   seira_web/weekly_scheduler.py
+NEW   tests/seira_core/test_weekly_scheduler.py
+EDIT  seira_web/__main__.py                (one scheduler replaces the 3 separate weekly loops)
+EDIT  seira_web/app.py                     (manual buttons go through the scheduler; /api/commands/schedule)
+EDIT  seira_web/templates/commands.html    (Weekly schedule card)
+EDIT  seira_web/distillation.py            (minimum gap 7 -> 6 days so a weekly slot is never skipped)
