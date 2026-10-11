@@ -107,10 +107,10 @@ def build_report(tenant_id: str) -> Dict[str, Any]:
         sizes: List[Dict[str, Any]] = []
         for c in convs.list_conversations(include_archived=False):
             try:
-                hist = convs.model_history(c["id"])
+                hist = convs.model_history(c["conv_id"])
             except Exception:
                 continue
-            sizes.append({"id": c["id"], "title": c.get("title", ""),
+            sizes.append({"id": c["conv_id"], "title": c.get("title", ""),
                           "messages": len(hist),
                           "tokens": sum(est(m["content"]) for m in hist)})
         sizes.sort(key=lambda s: -s["tokens"])

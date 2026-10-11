@@ -904,6 +904,32 @@ def create_app(llm_client_factory=None) -> FastAPI:
         except Exception as e:
             return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
 
+    @app.get("/api/commands/distillation/status")
+    def commands_distillation_status(account: dict = Depends(require_account)):
+        """Psyche size line + last Distillation run (read-only)."""
+        from seira_web import distillation
+        try:
+            return distillation.status(account["tenant_id"])
+        except Exception as e:
+            return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
+    @app.post("/api/commands/distillation/run-now")
+    def commands_distillation_run_now(account: dict = Depends(require_account)):
+        """Runs in a background thread; invisible, like Recollection."""
+        from seira_core.tripwire import is_halted
+        from seira_web import distillation
+        tenant_id = account["tenant_id"]
+        with tenant_scope(tenant_id):
+            if is_halted():
+                return JSONResponse({"message": "She is halted; not starting."}, status_code=503)
+        if distillation.is_session_active(tenant_id):
+            return {"message": "A Distillation session is already running."}
+        import threading
+        threading.Thread(target=distillation.run_now, args=(tenant_id,),
+                         name="seira-distillation-manual", daemon=True).start()
+        return {"message": "Distillation started in the background. Check the "
+                           "Psyche line here in a few minutes."}
+
     @app.post("/api/commands/recollection/run-now")
     def commands_recollection_run_now(account: dict = Depends(require_account)):
         """Runs in a background thread, not inline — a real
