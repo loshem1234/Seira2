@@ -132,6 +132,8 @@
           </div>
         </div>
       </div>
+      <button class="autoreadbtn" id="autoread" type="button" hidden aria-pressed="false"
+        title="Have her speak each new reply aloud">&#9835; Auto-read</button>
     </header>
     <div class="msgs" id="msgs">
       {% for r in history %}
@@ -407,6 +409,11 @@ function finalizeReply(text, id) {
   settleReasoning();
   if (streamEl) { streamEl.remove(); streamEl = null; streamText = ''; }
   addAssistant(text, id);
+  if (autoRead && VOICE.ready) {
+    const all = msgs.querySelectorAll('.msg.assistant .act-speak');
+    const last = all[all.length - 1];
+    if (last) speakMessage(last, text, true);
+  }
 }
 
 function addDownloadCard(filename, path) {
@@ -631,8 +638,7 @@ msgs.addEventListener('click', async (e) => {
     await navigator.clipboard.writeText(text);
     btn.textContent = 'copied'; setTimeout(()=>btn.textContent='copy', 1200);
   } else if (btn.classList.contains('act-speak')) {
-    speechSynthesis.cancel();
-    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    speakMessage(btn, text);
   } else if (btn.classList.contains('act-regen')) {
     msg.remove(); stream({action:'regenerate'});
   } else if (btn.classList.contains('act-edit')) {
@@ -950,6 +956,61 @@ document.getElementById('fileinput').addEventListener('change', async (e) => {
   }
   tray.classList.remove('open');
 });
+
+
+// ── Her voice: server voice when configured, browser voice otherwise ──
+let VOICE = {ready: false}, autoRead = false;
+try { autoRead = localStorage.getItem('seira.autoread') === '1'; } catch (e) {}
+const autoreadBtn = document.getElementById('autoread');
+function paintAutoRead() {
+  autoreadBtn.classList.toggle('on', autoRead);
+  autoreadBtn.setAttribute('aria-pressed', autoRead ? 'true' : 'false');
+}
+fetch('/api/voice/status').then(r => r.json()).then(d => {
+  VOICE = d || {ready: false};
+  if (VOICE.ready) { autoreadBtn.hidden = false; paintAutoRead(); }
+}).catch(() => {});
+autoreadBtn.addEventListener('click', () => {
+  autoRead = !autoRead;
+  try { localStorage.setItem('seira.autoread', autoRead ? '1' : '0'); } catch (e) {}
+  paintAutoRead();
+  if (!autoRead) stopVoice();
+});
+let voiceAudio = null, voiceBtn = null, voiceToken = 0;
+function stopVoice() {
+  voiceToken++;
+  if (voiceAudio) { voiceAudio.pause(); voiceAudio = null; }
+  if (voiceBtn) { voiceBtn.textContent = 'read aloud'; voiceBtn = null; }
+  try { speechSynthesis.cancel(); } catch (e) {}
+}
+async function speakMessage(btn, text, auto) {
+  if (!auto && voiceBtn === btn) { stopVoice(); return; }   // second tap = stop
+  stopVoice();
+  if (!VOICE.ready) {
+    speechSynthesis.speak(new SpeechSynthesisUtterance(text)); return;
+  }
+  const mine = ++voiceToken;
+  voiceBtn = btn; btn.textContent = 'preparing\u2026';
+  try {
+    const r = await fetch('/api/voice/speak', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
+    const d = await r.json();
+    if (mine !== voiceToken) return;                          // stopped meanwhile
+    if (!r.ok || d.error) {
+      addChip(d.error || 'Her voice is unavailable right now.');
+      btn.textContent = 'read aloud'; voiceBtn = null; return;
+    }
+    const a = new Audio(d.url); voiceAudio = a;
+    a.onended = () => { if (voiceAudio === a) stopVoice(); };
+    await a.play();
+    if (mine === voiceToken) btn.textContent = 'stop';
+  } catch (e) {
+    if (mine !== voiceToken) return;
+    btn.textContent = 'read aloud'; voiceBtn = null;
+    addChip(auto ? 'Tap \u201cread aloud\u201d \u2014 this browser blocked automatic playback.'
+                 : 'Could not play her voice.');
+  }
+}
 
 // Voice capture: standalone golden mic beside Send.
 const micbtn = document.getElementById('micbtn');

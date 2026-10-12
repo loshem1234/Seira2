@@ -57,6 +57,34 @@
   </div>
 
   <div class="card">
+    <h2>Her voice</h2>
+    <p class="muted" style="margin:.2rem 0 .8rem">
+      The voice she speaks in when you press <em>read aloud</em> on one of her
+      messages. Audio is made once per message and then kept, so replaying
+      it is free. The Google key lives only on the server
+      (<code>GEMINI_API_KEY</code>); it is never shown here.
+    </p>
+    <p id="voice-state" class="muted">Checking…</p>
+    <div id="voice-form" style="display:none">
+      <label class="muted" for="voice-select">Voice</label>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin:.25rem 0 .8rem">
+        <select id="voice-select" style="flex:1; min-width:12rem"></select>
+        <button id="voice-load" class="gold" type="button">Load my voices</button>
+      </div>
+      <label class="muted" for="voice-id">…or paste a voice id</label>
+      <input id="voice-id" type="text" placeholder="voice_…" style="width:100%; margin:.25rem 0 .8rem">
+      <label class="muted" for="voice-style">Delivery note (optional)</label>
+      <input id="voice-style" type="text" maxlength="300"
+        placeholder="e.g. calm, measured, warm" style="width:100%; margin:.25rem 0 .8rem">
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap">
+        <button id="voice-save" class="gold" type="button">Save</button>
+        <button id="voice-test" class="gold" type="button">Hear a sample</button>
+      </div>
+      <p id="voice-msg" class="muted" style="margin-top:.6rem"></p>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Context report</h2>
     <p class="muted" style="margin:.2rem 0 .8rem">
       A read-only look at what her context costs every turn, layer by
@@ -138,6 +166,59 @@ document.getElementById('run-distillation').addEventListener('click', async (e) 
   setTimeout(loadDistillation, 3000);
 });
 loadDistillation();
+
+// ── Her voice ──
+const vState = document.getElementById('voice-state'), vForm = document.getElementById('voice-form'),
+  vSel = document.getElementById('voice-select'), vId = document.getElementById('voice-id'),
+  vStyle = document.getElementById('voice-style'), vMsg = document.getElementById('voice-msg');
+let vAudio = null;
+async function loadVoice() {
+  try {
+    const d = await (await fetch('/api/voice/status')).json();
+    if (!d.key) {
+      vState.textContent = 'No Google key is set on the server yet. Add GEMINI_API_KEY under Variables on Railway, then reload this page.';
+      return;
+    }
+    vState.textContent = d.ready ? 'Ready — voice: ' + d.voice_id : 'Key found. Choose a voice below.';
+    vForm.style.display = '';
+    vId.value = d.voice_id || ''; vStyle.value = d.style || '';
+  } catch (e) { vState.textContent = 'Could not reach the server.'; }
+}
+document.getElementById('voice-load').addEventListener('click', async (e) => {
+  e.target.disabled = true; vMsg.textContent = 'Asking Google…';
+  try {
+    const d = await (await fetch('/api/voice/voices')).json();
+    if (d.error) { vMsg.textContent = d.error; return; }
+    vSel.innerHTML = '<option value="">— choose —</option>' + d.voices.map(v =>
+      '<option value="' + v.id + '">' + (v.id.startsWith('voice_') ? '★ ' : '') + v.name +
+      ' (' + v.id + ')</option>').join('');
+    vMsg.textContent = d.voices.length + ' voices found. Your created voices are starred and listed first.';
+  } catch (err) { vMsg.textContent = 'Could not reach the server.'; }
+  finally { e.target.disabled = false; }
+});
+vSel.addEventListener('change', () => { if (vSel.value) vId.value = vSel.value; });
+async function saveVoice() {
+  const r = await fetch('/api/voice/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({voice_id: vId.value.trim(), style: vStyle.value.trim()})});
+  const d = await r.json();
+  if (!r.ok) { vMsg.textContent = d.detail || 'Could not save.'; return false; }
+  vState.textContent = d.ready ? 'Ready — voice: ' + d.voice_id : 'Key found. Choose a voice below.';
+  vMsg.textContent = 'Saved.'; return true;
+}
+document.getElementById('voice-save').addEventListener('click', saveVoice);
+document.getElementById('voice-test').addEventListener('click', async (e) => {
+  if (!(await saveVoice())) return;
+  e.target.disabled = true; vMsg.textContent = 'Making a sample…';
+  try {
+    const d = await (await fetch('/api/voice/speak', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text: 'I am here, and I am listening. This is how I sound when I speak with you.'})})).json();
+    if (d.error) { vMsg.textContent = d.error; return; }
+    if (vAudio) vAudio.pause();
+    vAudio = new Audio(d.url); await vAudio.play(); vMsg.textContent = 'Playing.';
+  } catch (err) { vMsg.textContent = 'Could not play the sample.'; }
+  finally { e.target.disabled = false; }
+});
+loadVoice();
 
 document.getElementById('run-context-report').addEventListener('click', async (e) => {
   const out = document.getElementById('context-report');
