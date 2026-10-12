@@ -44,11 +44,7 @@
   <div class="backdrop" id="backdrop"></div>
   <aside class="sidebar" id="sidebar">
     <div class="railbrand">
-      <svg class="sigil" viewBox="0 0 30 44" aria-hidden="true">
-        <g class="sigil-pulse"><circle class="circle" cx="11" cy="14" r="9"/>
-        <circle class="circle" cx="19" cy="14" r="9"/>
-        <circle class="pt" cx="15" cy="14" r="1.7"/></g>
-        <line class="ray" x1="15" y1="16" x2="15" y2="42"/></svg>
+      <img class="sigil markimg" src="/static/seira-logo.svg?v={{ static_version }}" alt="" aria-hidden="true">
       <span class="wordmark">Seira</span>
     </div>
     <button class="gold newchat" id="newchat">+ New conversation</button>
@@ -102,6 +98,10 @@
     </nav>
   </aside>
   <div class="chatcol" id="chatcol">
+    <picture class="markbg" aria-hidden="true">
+      <source media="(prefers-reduced-motion: reduce)" srcset="/static/seira-mark.svg?v={{ static_version }}">
+      <img src="/static/seira-mark-anim.svg?v={{ static_version }}" alt="">
+    </picture>
     <div class="embers" aria-hidden="true">
       <span class="ember" style="--x:6%;  --dur:9.5s; --delay:0s;   --size:.22rem;"></span>
       <span class="ember" style="--x:14%; --dur:12s;  --delay:2.1s; --size:.16rem;"></span>
