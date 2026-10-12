@@ -690,3 +690,15 @@ body.modalopen { overflow: hidden; }
 @media (max-width: 760px) { .markbg img { opacity: .28; height: 92%; max-width: none; } }
 @media (prefers-reduced-motion: reduce) {
   .sigil.markimg { animation: none !important; } }
+
+/* Her voice: auto-read toggle in the chat header */
+.autoreadbtn { margin-left: auto; padding: .28rem .7rem; font-size: .8rem; letter-spacing: .06em;
+  border-radius: 999px; background: transparent; color: var(--muted, #9a8f75);
+  border: 1px solid var(--edge); cursor: pointer; white-space: nowrap; }
+.autoreadbtn.on { color: var(--gold-bright); border-color: var(--gold); background: rgba(212,175,55,.1); }
+.autoreadbtn[hidden] { display: none; }
+.chathead .statuschip:not([hidden]) + .autoreadbtn { margin-left: .5rem; }
+@media (max-width: 760px) { .autoreadbtn { padding: .25rem .55rem; font-size: .74rem; } }
+
+#voice-select { padding: .6rem .7rem; border-radius: 10px; background: rgba(20,10,40,.7);
+  color: var(--text, #e8dfc8); border: 1px solid var(--edge); font: inherit; }
