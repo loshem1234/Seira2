@@ -155,21 +155,60 @@ def list_projects(initiative: Optional[str] = None) -> List[Dict[str, Any]]:
     return [p for p in projects if p.get("initiative", "self") == initiative]
 
 
+# Bounds on the always-loaded manifest: names only, never contents, and
+# capped per project so a large project can't swell her fixed per-turn cost.
+INDEX_MAX_FILES = 12
+INDEX_MAX_CHATS = 8
+
+
+def _manifest_lines(proj: Dict[str, Any], files: List[Dict[str, Any]],
+                    chats: List[Dict[str, Any]]) -> List[str]:
+    out: List[str] = []
+    if files:
+        names = [f["filename"] for f in files[:INDEX_MAX_FILES]]
+        more = len(files) - len(names)
+        out.append(f"    files ({len(files)}): " + ", ".join(names)
+                   + (f", +{more} more" if more > 0 else ""))
+    if chats:
+        shown = [f'"{c["title"]}" {c["conv_id"]}' for c in chats[:INDEX_MAX_CHATS]]
+        more = len(chats) - len(shown)
+        out.append(f"    chats ({len(chats)}): " + "; ".join(shown)
+                   + (f"; +{more} more" if more > 0 else ""))
+    return out
+
+
 def concise_index_text() -> str:
-    """The always-loaded addendum, and ONLY this — title, one sentence,
-    tag, and whether it was hers to begin with. Never file contents,
-    never a document list. Empty string when she has no projects yet,
-    so a fresh Seira's prompt doesn't carry a hollow header for
-    nothing."""
+    """The always-loaded manifest: each project's title, one sentence,
+    tag, who started it, and — new — the NAMES of the files and
+    conversations filed under it (capped). Never file contents; those
+    stay recall-only. Rebuilt on every turn (a fresh agent per turn), so
+    anything Loshem changes from the Projects tab — a rename, a new
+    description, a file or chat filed or removed — is visible to her on
+    her very next message. Empty string when she has no projects yet."""
     projects = list_projects()
     if not projects:
         return ""
-    lines = ["# LIVING PROJECTS (index only — contents are recall-only; "
-             "call seira_project_recall to actually load one)"]
+    from seira_web import conversations as convs
+    from seira_web import references as refs
+    files_by: Dict[str, List[Dict[str, Any]]] = {}
+    for r in refs.list_references():
+        if r.get("project"):
+            files_by.setdefault(r["project"], []).append(r)
+    chats_by: Dict[str, List[Dict[str, Any]]] = {}
+    for c in convs.list_conversations():
+        if c.get("project"):
+            chats_by.setdefault(c["project"], []).append(c)
+    lines = ["# LIVING PROJECTS (manifest — names only; contents are recall-only: "
+             "call seira_project_recall to load a project's files). Loshem can also "
+             "create, rename, describe, and file documents and conversations into "
+             "projects himself; this list always shows the current state."]
     for p in projects:
         blurb = f" — {p['blurb']}" if p.get("blurb") else ""
-        mark = " (her own initiative)" if p.get("initiative", "self") == "self" else ""
+        mark = " (her own initiative)" if p.get("initiative", "self") == "self" \
+            else " (started by Loshem)"
         lines.append(f"- \"{p['name']}\" [{p['tag']}]{mark}{blurb}")
+        lines.extend(_manifest_lines(p, files_by.get(p["proj_id"], []),
+                                     chats_by.get(p["proj_id"], [])))
     return "\n".join(lines)
 
 
@@ -193,7 +232,13 @@ def remove_reference(ref_id: str) -> Dict[str, Any]:
     rec = refs.resolve_ref(ref_id)
     if rec is None:
         raise ValueError(f"No reference matching {ref_id!r}.")
+    old_proj = rec.get("project")
     refs.set_project(rec["ref_id"], None)
+    if old_proj:
+        index = _load_index()
+        if old_proj in index:
+            index[old_proj]["updated"] = _now()
+            _save_index(index)
     return rec
 
 
@@ -352,9 +397,16 @@ def set_conversation_project(conv_id: str, proj_id: Optional[str]) -> Dict[str, 
         index = convs._load_index()
         if conv_id not in index:
             raise ValueError(f"No conversation {conv_id!r}.")
+        old = index[conv_id].get("project")
         if proj_id:
             index[conv_id]["project"] = proj_id
         else:
             index[conv_id].pop("project", None)
         convs._save_index(index)
-        return index[conv_id]
+        rec = index[conv_id]
+    pidx = _load_index()
+    for pid in {proj_id, old} - {None}:
+        if pid in pidx:
+            pidx[pid]["updated"] = _now()
+    _save_index(pidx)
+    return rec
