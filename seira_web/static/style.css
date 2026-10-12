@@ -652,3 +652,23 @@ body.modalopen { overflow: hidden; }
   .modalbox { width: 100%; max-height: 92dvh; border-radius: 16px 16px 0 0; }
   .modalbox textarea { height: 55dvh; }
 }
+
+/* Higher projects */
+.projgroup { margin-bottom: 1.6rem; }
+.projgroup[hidden] { display: none; }
+.projgroup:not(.ungrouped) { padding: .9rem 1rem 1rem; border-radius: 16px;
+  border: 1px solid var(--gold-dim); background: rgba(212,175,55,.04); }
+.grouphead { display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap; margin-bottom: .3rem; }
+.groupname { font-family: 'Cinzel Decorative', 'Cormorant Garamond', serif; color: var(--gold-bright);
+  font-size: 1.15rem; letter-spacing: .08em; }
+.groupname.dim { color: var(--text-dim); font-size: .9rem; }
+.groupblurb { color: var(--text-dim); margin-bottom: .8rem; font-size: .92rem; }
+.projcard.subcard { min-height: 7.5rem; }
+
+/* Split dialog */
+.modalbox.smallbox { width: min(30rem, 100%); }
+.splittext { margin: 0; font-size: .95rem; }
+.splitpreview { padding: .6rem .8rem; border-radius: 10px; border-left: 2px solid var(--gold);
+  background: rgba(10,4,22,.6); color: var(--text-dim); font-style: italic; font-size: .9rem; }
+.splitlabel { font-size: .82rem; color: var(--text-dim); margin-bottom: -.35rem; }
+#splitname { border-radius: 10px; font-size: 16px; }
