@@ -1,0 +1,15 @@
+SEIRA'S GOLDEN SYMBOL — logo, tab icon, chat background
+Upload each file to the same path in GitHub.
+
+NEW (seira_web/static/)
+  seira-mark.svg          the golden symbol, identical geometry (static, transparent)
+  seira-mark-2048.png     same, as a transparent PNG
+  seira-logo.svg          logo version (slightly thickened strokes so it reads small)
+  seira-mark-anim.svg     animated chat background
+  favicon.svg, favicon-32.png, apple-touch-icon.png, icon-192.png, icon-512.png   tab / home-screen icons
+
+CHANGED
+  seira_web/templates/base.html    new favicon links; top-bar logo is the golden mark
+  seira_web/templates/chat.html    rail logo = golden mark; animated symbol behind the embers
+  seira_web/templates/shell.html   rail logo = golden mark
+  seira_web/static/style.css       logo pulse + background styling (appended)
