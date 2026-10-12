@@ -25,6 +25,16 @@ def register(app, templates, require_account) -> None:
     def _err(msg: str, code: int = 400):
         return JSONResponse({"ok": False, "error": msg}, status_code=code)
 
+    @app.get("/api/rail")
+    def rail_data(account: dict = Depends(require_account)):
+        """Recent conversations + projects for the side rail on non-chat pages."""
+        with tenant_scope(account["tenant_id"]):
+            recent = [{"conv_id": c["conv_id"], "title": c["title"]}
+                      for c in convs.list_conversations()[:15]]
+            plist = [{"proj_id": p["proj_id"], "name": p["name"]}
+                     for p in projs.list_projects()[:20]]
+        return JSONResponse({"recent": recent, "projects": plist})
+
     @app.get("/projects", response_class=HTMLResponse)
     def projects_page(request: Request, account: dict = Depends(require_account)):
         with tenant_scope(account["tenant_id"]):
