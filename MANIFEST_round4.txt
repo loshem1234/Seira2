@@ -1,0 +1,11 @@
+Seira — higher projects, list-order fix, split conversation. Add/replace:
+  seira_web/conversations.py
+  seira_web/conversation_split.py          (NEW)
+  seira_web/projects.py
+  seira_web/projects_portal.py
+  seira_web/templates/chat.html
+  seira_web/templates/projects.html
+  seira_web/templates/project.html
+  seira_web/static/style.css
+  tests/seira_core/test_split_order_groups.py   (NEW, optional)
+Needs Phases 1-3 + project manifest + edit window already deployed.
