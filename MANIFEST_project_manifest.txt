@@ -1,0 +1,4 @@
+Seira — project manifest shows files + chats (live). Replace:
+  seira_web/projects.py
+  tests/seira_core/test_projects.py   (optional)
+Requires Phase 2 (projects_portal.py etc.) already deployed — set_conversation_project lives in projects.py.
