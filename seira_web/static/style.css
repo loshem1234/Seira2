@@ -622,3 +622,33 @@ button.ghost.confirming { color: var(--rust); border-color: var(--rust); }
 .railnav a.current { color: var(--gold-bright); background: rgba(212,175,55,.1); }
 body.locked .convolist .convo { display: block; }
 .shellmain .frame { padding-top: 1.2rem; }
+
+/* ═══ In-page edit window ═════════════════════════════════════════════ */
+body.modalopen { overflow: hidden; }
+.modalback { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center;
+  padding: 1rem; background: rgba(4,1,12,.72); backdrop-filter: blur(4px); }
+.modalback[hidden] { display: none; }
+.modalbox { width: min(46rem, 100%); max-height: min(88dvh, 44rem); display: flex;
+  flex-direction: column; gap: .7rem; padding: 1rem 1.1rem; border-radius: 16px;
+  background: linear-gradient(160deg, #1f1040, var(--deep)); border: 1px solid var(--gold-dim);
+  box-shadow: 0 20px 60px rgba(0,0,0,.65), 0 0 0 1px rgba(212,175,55,.08); }
+.modalhead { display: flex; align-items: center; justify-content: space-between;
+  font-variant: small-caps; letter-spacing: .16em; color: var(--gold); font-size: .95rem; }
+.modalx { background: none; border: none; color: var(--text-dim); font-size: 1.6rem;
+  line-height: 1; cursor: pointer; padding: 0 .3rem; }
+.modalx:hover { color: var(--gold-bright); }
+.modalbox textarea { flex: 1 1 auto; min-height: 12rem; height: 50dvh; max-height: 100%;
+  resize: vertical; overflow-y: auto; border-radius: 12px; background: rgba(10,4,22,.7);
+  font-size: 16px; line-height: 1.55; padding: .8rem .9rem; }
+.modalbox textarea:focus { outline: none; border-color: var(--gold-dim);
+  box-shadow: 0 0 0 3px rgba(212,175,55,.12); }
+.modalfoot { display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  flex-wrap: wrap; }
+.modalbtns { display: flex; gap: .6rem; }
+.modalbtns .gold { padding: .5rem 1.3rem; border-radius: 10px; }
+.modalnote { font-size: .78rem; }
+@media (max-width: 640px) {
+  .modalback { padding: 0; align-items: end; }
+  .modalbox { width: 100%; max-height: 92dvh; border-radius: 16px 16px 0 0; }
+  .modalbox textarea { height: 55dvh; }
+}
