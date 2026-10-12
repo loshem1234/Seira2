@@ -155,6 +155,7 @@ def rename_conversation(conv_id: str, new_title: str) -> Dict[str, Any]:
         # A title someone chose themselves is never overwritten by the
         # background auto-namer — see conversation_summarizer.py.
         index[conv_id]["title_user_set"] = True
+        _freeze_listed(index[conv_id])
         index[conv_id]["updated"] = _now()
         _save_index(index)
         return index[conv_id]
@@ -201,13 +202,25 @@ def archive_conversation(conv_id: str) -> Dict[str, Any]:
         return index[conv_id]
 
 
+def _listed_at(rec: Dict[str, Any]) -> str:
+    return rec.get("listed_at") or rec.get("updated") or rec.get("created", "")
+
+
+def _freeze_listed(rec: Dict[str, Any]) -> None:
+    """Before "updated" moves, pin the list position a legacy conversation
+    (no listed_at yet) already had, so background activity can't shift it."""
+    if "listed_at" not in rec:
+        rec["listed_at"] = rec.get("updated") or rec.get("created", "")
+
+
 def list_conversations(include_archived: bool = False) -> List[Dict[str, Any]]:
     with _index_lock():
         index = _load_index()
     convs = index.values()
     if not include_archived:
         convs = [c for c in convs if not c.get("archived")]
-    return sorted(convs, key=lambda c: c["updated"], reverse=True)
+    out = [{**c, "listed_at": _listed_at(c)} for c in convs]
+    return sorted(out, key=lambda c: c["listed_at"], reverse=True)
 
 
 def create_conversation(title: str = "New conversation") -> Dict[str, Any]:
@@ -220,19 +233,43 @@ def create_conversation(title: str = "New conversation") -> Dict[str, Any]:
             "created": _now(),
             "updated": _now(),
         }
+        index[conv_id]["listed_at"] = index[conv_id]["updated"]
         _save_index(index)
     _conv_path(conv_id).touch()
     return index[conv_id]
 
 
 def touch(conv_id: str, maybe_title_from: Optional[str] = None) -> None:
+    """Record activity on a conversation.
+
+    "updated" is the honest activity stamp (the summarizer and Recollection
+    use it to know a chat has new content) and is bumped on every call, as
+    before. "listed_at" is what ORDERS the Architect's list, and it moves
+    only when a real prompt from him has arrived since it last moved —
+    opening a chat, her own initiative, delegation results and renames
+    never reorder his list."""
+    last_user = None
+    try:
+        with _conversation_lock(conv_id):
+            for r in reversed(_records_unlocked(conv_id)):
+                if r.get("kind") == "user":
+                    last_user = r
+                    break
+    except Exception:
+        last_user = None
     with _index_lock():
         index = _load_index()
-        if conv_id in index:
-            index[conv_id]["updated"] = _now()
-            if maybe_title_from and index[conv_id]["title"] == "New conversation":
-                index[conv_id]["title"] = maybe_title_from.strip()[:80]
-            _save_index(index)
+        if conv_id not in index:
+            return
+        rec = index[conv_id]
+        _freeze_listed(rec)
+        rec["updated"] = _now()
+        if (last_user is not None and not last_user.get("autonomous")
+                and last_user.get("ts", "") > _listed_at(rec)):
+            rec["listed_at"] = _now()
+        if maybe_title_from and rec["title"] == "New conversation":
+            rec["title"] = maybe_title_from.strip()[:80]
+        _save_index(index)
 
 
 def add_tags(conv_id: str, tags: List[str]) -> Optional[Dict[str, Any]]:

@@ -200,15 +200,31 @@ def concise_index_text() -> str:
             chats_by.setdefault(c["project"], []).append(c)
     lines = ["# LIVING PROJECTS (manifest — names only; contents are recall-only: "
              "call seira_project_recall to load a project's files). Loshem can also "
-             "create, rename, describe, and file documents and conversations into "
-             "projects himself; this list always shows the current state."]
+             "create, rename, describe, group (a higher project holds related "
+             "projects), and file documents and conversations into projects "
+             "himself; this list always shows the current state."]
+    ids = {p["proj_id"] for p in projects}
+    kids: Dict[str, List[Dict[str, Any]]] = {}
     for p in projects:
+        if p.get("parent") in ids:
+            kids.setdefault(p["parent"], []).append(p)
+
+    def emit(p: Dict[str, Any], depth: int) -> None:
+        pad = "  " * depth
         blurb = f" — {p['blurb']}" if p.get("blurb") else ""
         mark = " (her own initiative)" if p.get("initiative", "self") == "self" \
             else " (started by Loshem)"
-        lines.append(f"- \"{p['name']}\" [{p['tag']}]{mark}{blurb}")
-        lines.extend(_manifest_lines(p, files_by.get(p["proj_id"], []),
-                                     chats_by.get(p["proj_id"], [])))
+        group = f" [higher project: {len(kids[p['proj_id']])} inside]" if p["proj_id"] in kids else ""
+        lines.append(f"{pad}- \"{p['name']}\" [{p['tag']}]{mark}{group}{blurb}")
+        lines.extend(pad + ln for ln in _manifest_lines(
+            p, files_by.get(p["proj_id"], []), chats_by.get(p["proj_id"], [])))
+        for c in kids.get(p["proj_id"], []):
+            emit(c, depth + 1)
+
+    for p in projects:
+        if p.get("parent") in ids:
+            continue  # shown under its higher project
+        emit(p, 0)
     return "\n".join(lines)
 
 
@@ -385,6 +401,12 @@ def portal_overview() -> List[Dict[str, Any]]:
     for p in list_projects():
         out.append({**p, "chat_count": chat_n.get(p["proj_id"], 0),
                     "file_count": file_n.get(p["proj_id"], 0)})
+    kids: Dict[str, int] = {}
+    for p in out:
+        if p.get("parent"):
+            kids[p["parent"]] = kids.get(p["parent"], 0) + 1
+    for p in out:
+        p["child_count"] = kids.get(p["proj_id"], 0)
     return out
 
 
@@ -410,3 +432,39 @@ def set_conversation_project(conv_id: str, proj_id: Optional[str]) -> Dict[str, 
             pidx[pid]["updated"] = _now()
     _save_index(pidx)
     return rec
+
+
+# ── Higher projects (one level of grouping) ─────────────────────────
+# A project may sit under a "higher project" — which is simply a project
+# that has children. Two levels only: a higher project cannot itself have
+# a parent, and a project with children cannot be moved under another.
+
+def children_of(proj_id: str) -> List[Dict[str, Any]]:
+    return [p for p in list_projects() if p.get("parent") == proj_id]
+
+
+def set_parent(proj_id: str, parent_id: Optional[str]) -> Dict[str, Any]:
+    rec = resolve_project(proj_id)
+    if rec is None:
+        raise ValueError(f"No project matching {proj_id!r}.")
+    index = _load_index()
+    pid = rec["proj_id"]
+    if not parent_id:
+        index[pid].pop("parent", None)
+        index[pid]["updated"] = _now()
+        _save_index(index)
+        return index[pid]
+    parent = resolve_project(parent_id)
+    if parent is None:
+        raise ValueError(f"No project matching {parent_id!r}.")
+    if parent["proj_id"] == pid:
+        raise ValueError("A project can't sit under itself.")
+    if parent.get("parent"):
+        raise ValueError("That project is itself inside another — groups go one level deep.")
+    if any(p.get("parent") == pid for p in index.values()):
+        raise ValueError("This project already has projects inside it, so it can't move under another.")
+    index[pid]["parent"] = parent["proj_id"]
+    index[pid]["updated"] = _now()
+    index[parent["proj_id"]]["updated"] = _now()
+    _save_index(index)
+    return index[pid]

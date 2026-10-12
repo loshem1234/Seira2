@@ -59,7 +59,18 @@ def register(app, templates, require_account) -> None:
                            if c.get("project") != pid]
             loose = [{"ref_id": r["ref_id"], "filename": r["filename"]}
                      for r in refs.list_references() if not r.get("project")]
+            allp = projs.list_projects()
+            parent = projs.resolve_project(proj["parent"]) if proj.get("parent") else None
+            children = projs.children_of(pid)
+            has_parent_of = {p["parent"] for p in allp if p.get("parent")}
+            eligible_parents = [] if (children or parent) else [
+                p for p in allp if p["proj_id"] != pid and not p.get("parent")]
+            eligible_children = [] if proj.get("parent") else [
+                p for p in allp if p["proj_id"] != pid and not p.get("parent")
+                and p["proj_id"] not in has_parent_of]
         return templates.TemplateResponse(request, "project.html", {
+            "parent": parent, "children": children,
+            "eligible_parents": eligible_parents, "eligible_children": eligible_children,
             "proj": proj, "chats": chats, "files": files,
             "other_chats": other_chats, "loose_files": loose})
 
@@ -92,6 +103,30 @@ def register(app, templates, require_account) -> None:
         except ValueError as e:
             return _err(str(e))
         return JSONResponse({"ok": True, "name": rec["name"], "blurb": rec.get("blurb", "")})
+
+    @app.post("/api/projects/{proj_id}/parent")
+    async def set_project_parent(proj_id: str, request: Request,
+                                 account: dict = Depends(require_account)):
+        body = await request.json()
+        try:
+            with tenant_scope(account["tenant_id"]):
+                projs.set_parent(proj_id, body.get("parent_id") or None)
+        except ValueError as e:
+            return _err(str(e))
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/conversations/{conv_id}/split")
+    async def split_conversation_route(conv_id: str, request: Request,
+                                       account: dict = Depends(require_account)):
+        from seira_web.conversation_split import split_conversation
+        body = await request.json()
+        try:
+            with tenant_scope(account["tenant_id"]):
+                new = split_conversation(conv_id, int(body.get("target_id") or 0),
+                                         body.get("title"))
+        except (ValueError, TypeError) as e:
+            return _err(str(e))
+        return JSONResponse({"ok": True, "conv_id": new["conv_id"], "title": new["title"]})
 
     @app.post("/api/projects/{proj_id}/conversations")
     def new_chat_in_project(proj_id: str, account: dict = Depends(require_account)):
