@@ -301,3 +301,60 @@ def recall(proj_id_or_tag: str, mode: str = "manifest",
                 "file_count": len(files), "files": loaded,
                 "omitted_for_space": omitted}
     return {"found": False, "error": f"mode must be 'manifest' or 'full', got {mode!r}."}
+
+
+# ── Portal helpers (the Projects tab) ───────────────────────────────
+
+def project_conversations(proj_id: str) -> List[Dict[str, Any]]:
+    """Conversations filed under this project, most recent first."""
+    from seira_web import conversations as convs
+    return [c for c in convs.list_conversations() if c.get("project") == proj_id]
+
+
+def rename_project(proj_id: str, name: str) -> Dict[str, Any]:
+    if not name.strip():
+        raise ValueError("A project needs a name.")
+    rec = resolve_project(proj_id)
+    if rec is None:
+        raise ValueError(f"No project matching {proj_id!r}.")
+    index = _load_index()
+    index[rec["proj_id"]]["name"] = name.strip()[:200]
+    index[rec["proj_id"]]["updated"] = _now()
+    _save_index(index)
+    return index[rec["proj_id"]]
+
+
+def portal_overview() -> List[Dict[str, Any]]:
+    """Every project with its chat and file counts, for the card grid."""
+    from seira_web import conversations as convs
+    from seira_web import references as refs
+    chat_n: Dict[str, int] = {}
+    for c in convs.list_conversations():
+        if c.get("project"):
+            chat_n[c["project"]] = chat_n.get(c["project"], 0) + 1
+    file_n: Dict[str, int] = {}
+    for r in refs.list_references():
+        if r.get("project"):
+            file_n[r["project"]] = file_n.get(r["project"], 0) + 1
+    out = []
+    for p in list_projects():
+        out.append({**p, "chat_count": chat_n.get(p["proj_id"], 0),
+                    "file_count": file_n.get(p["proj_id"], 0)})
+    return out
+
+
+def set_conversation_project(conv_id: str, proj_id: Optional[str]) -> Dict[str, Any]:
+    """File a conversation under a project (None = take it out). One
+    project per conversation; its updated stamp is left alone so filing
+    never reshuffles recency."""
+    from seira_web import conversations as convs
+    with convs._index_lock():
+        index = convs._load_index()
+        if conv_id not in index:
+            raise ValueError(f"No conversation {conv_id!r}.")
+        if proj_id:
+            index[conv_id]["project"] = proj_id
+        else:
+            index[conv_id].pop("project", None)
+        convs._save_index(index)
+        return index[conv_id]

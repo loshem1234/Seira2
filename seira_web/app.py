@@ -296,12 +296,20 @@ def create_app(llm_client_factory=None) -> FastAPI:
             history = convs.display_records(active_id)
         from seira_web.chat import AVAILABLE_MODELS, DEFAULT_MODEL
         from seira_web import autonomy, autonomy_loop
+        from seira_web import projects as _projs
+        with tenant_scope(account["tenant_id"]):
+            project_list = [{"proj_id": p["proj_id"], "name": p["name"]}
+                            for p in _projs.list_projects()]
         return templates.TemplateResponse(request, "chat.html", {
+            "projects": project_list,
             "conversations": conv_list, "active_id": active_id,
             "history": history, "available_models": AVAILABLE_MODELS,
             "default_model": DEFAULT_MODEL,
             "autonomy_pacing_seconds": autonomy_loop.PACING_SECONDS,
             "autonomy_max_turns": autonomy.MAX_TURNS_PER_RUN})
+
+    from seira_web import projects_portal
+    projects_portal.register(app, templates, require_account)
 
     @app.post("/api/conversations")
     def new_conversation(account: dict = Depends(require_account)):
