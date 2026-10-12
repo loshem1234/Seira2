@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block bodyclass %}locked{% endblock %}
+{% block body %}
+<div class="shell" id="shell">
+  <div class="backdrop" id="backdrop"></div>
+  <aside class="sidebar" id="sidebar">
+    <a class="railbrand" href="/" aria-label="Seira home">
+      <svg class="sigil" viewBox="0 0 30 44" aria-hidden="true">
+        <g class="sigil-pulse"><circle class="circle" cx="11" cy="14" r="9"/>
+        <circle class="circle" cx="19" cy="14" r="9"/>
+        <circle class="pt" cx="15" cy="14" r="1.7"/></g>
+        <line class="ray" x1="15" y1="16" x2="15" y2="42"/></svg>
+      <span class="wordmark">Seira</span>
+    </a>
+    <button class="gold newchat" id="railnew" type="button">+ New conversation</button>
+    <div class="convolist" id="railrecent"><div class="railgroup">Recent</div></div>
+    <nav class="railnav" aria-label="Sections">
+      <a href="/">Speak with her</a>
+      <a href="/projects" class="railprojects">Projects</a>
+      <a href="/diary">Her Diary</a>
+      <a href="/weekly-notes">Her Weekly Notes</a>
+      <a href="/archive">Archive</a>
+      <a href="/console">Console</a>
+      <a href="/commands">Commands</a>
+      <a href="/api/export">Export My Seira</a>
+      <form method="post" action="/logout"><button type="submit">Log out</button></form>
+    </nav>
+  </aside>
+  <div class="chatcol">
+    <header class="chathead">
+      <button class="railbtn" id="railbtn" type="button" aria-label="Menu">
+        <span></span><span></span><span></span></button>
+      <div class="chattitle">{% block pagetitle %}{{ self.title() }}{% endblock %}</div>
+    </header>
+    <main class="shellmain">{% block content %}{% endblock %}</main>
+  </div>
+</div>
+<script src="/static/rail.js?v={{ static_version }}"></script>
+{% endblock %}
