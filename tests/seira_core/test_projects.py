@@ -168,8 +168,7 @@ def test_concise_index_shows_title_blurb_tag_only(home):
 
 
 def test_concise_index_never_leaks_file_contents(home):
-    """The whole point of the design: the always-visible index is a
-    reminder that a project exists, never a preview of its contents.
+    """The always-visible manifest lists names, never a preview of contents.
     If this test ever needs to change, that's a real boundary change,
     not a refactor — worth pausing on."""
     proj_rec = projs.create_project("Secret Project", blurb="A summary line")
@@ -177,7 +176,10 @@ def test_concise_index_never_leaks_file_contents(home):
                         project=proj_rec["proj_id"])
     text = projs.concise_index_text()
     assert "THIS SHOULD NEVER APPEAR" not in text
-    assert "sensitive.md" not in text
+    # Boundary deliberately widened (Loshem, 2026-10-12): file and chat NAMES
+    # now appear in the manifest so she sees what he files from the Projects
+    # tab. Contents still never do.
+    assert "files (1): sensitive.md" in text
 
 
 def test_concise_index_reaches_direct_mode_system_prompt(founded):
@@ -492,3 +494,34 @@ def test_direct_mode_still_gets_full_identity(founded):
     provider, conv_id = founded
     provider.initialize("s2")
     assert "# UNITY" in provider.system_prompt_block()
+
+
+def test_manifest_shows_files_and_chats_and_stays_live(tmp_path, monkeypatch):
+    monkeypatch.setenv("SEIRA_HOME", str(tmp_path / "seira"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants"))
+    from seira_web import conversations as convs, projects as projs, references as refs
+    p = projs.create_project("Proclus", blurb="Elements", initiative="requested")
+    ref = refs.save_reference("notes.md", "secret body text")
+    projs.add_reference(ref["ref_id"], p["proj_id"])
+    c = convs.create_conversation("Prop 1 talk")
+    projs.set_conversation_project(c["conv_id"], p["proj_id"])
+    text = projs.concise_index_text()
+    assert "started by Loshem" in text and "files (1): notes.md" in text
+    assert f'"Prop 1 talk" {c["conv_id"]}' in text
+    assert "secret body text" not in text            # names only, never contents
+    projs.rename_project(p["proj_id"], "Proclus II")
+    projs.remove_reference(ref["ref_id"])
+    projs.set_conversation_project(c["conv_id"], None)
+    text = projs.concise_index_text()
+    assert "Proclus II" in text and "files (" not in text and "chats (" not in text
+
+
+def test_manifest_caps_long_lists(tmp_path, monkeypatch):
+    monkeypatch.setenv("SEIRA_HOME", str(tmp_path / "seira"))
+    monkeypatch.setenv("SEIRA_TENANTS_ROOT", str(tmp_path / "tenants"))
+    from seira_web import projects as projs, references as refs
+    p = projs.create_project("Big")
+    for i in range(projs.INDEX_MAX_FILES + 3):
+        r = refs.save_reference(f"f{i}.md", f"t{i}")
+        projs.add_reference(r["ref_id"], p["proj_id"])
+    assert "+3 more" in projs.concise_index_text()
