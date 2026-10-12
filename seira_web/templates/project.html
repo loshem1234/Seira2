@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}{{ proj.name }}{% endblock %}
+{% block body %}
+<div class="frame portal" data-proj="{{ proj.proj_id }}" id="projroot">
+  <a class="backlink" href="/projects">‹ Projects</a>
+  <div class="portalhead">
+    <div class="projtitlewrap">
+      <h1 class="portaltitle" id="ptitle">{{ proj.name }}</h1>
+      <p class="projblurbline" id="pblurb">{{ proj.blurb or '' }}</p>
+      <p class="muted">
+        {% if proj.get('initiative', 'self') == 'self' %}<span class="badge">by Seira</span> {% endif %}
+        [{{ proj.tag }}]
+      </p>
+    </div>
+    <div class="headbtns">
+      <button class="ghost" id="pedit" type="button">Edit</button>
+      <button class="gold" id="pnewchat" type="button">+ New chat</button>
+    </div>
+  </div>
+  <form class="card newprojform" id="peditform" hidden>
+    <input id="pename" value="{{ proj.name }}" maxlength="200" autocomplete="off">
+    <input id="peblurb" value="{{ proj.blurb or '' }}" maxlength="240" placeholder="One line about it" autocomplete="off">
+    <div class="formrow">
+      <button class="gold" type="submit">Save</button>
+      <button type="button" class="ghost" id="pecancel">Cancel</button>
+      <span class="muted" id="peerr"></span>
+    </div>
+  </form>
+
+  <section class="card">
+    <h2>Conversations <span class="muted">({{ chats|length }})</span></h2>
+    {% for c in chats %}
+    <div class="prow" data-id="{{ c.conv_id }}">
+      <a href="/?c={{ c.conv_id }}">{{ c.title }}</a>
+      <button class="ghost small act-remove-chat" type="button" title="Take out of this project">remove</button>
+    </div>
+    {% else %}
+    <p class="muted">No conversations here yet.</p>
+    {% endfor %}
+    <details class="adder">
+      <summary>Add existing conversations</summary>
+      <input type="search" class="adderfilter" placeholder="Filter" autocomplete="off">
+      <div class="addlist" data-kind="chat">
+        {% for c in other_chats %}
+        <button type="button" class="addrow" data-id="{{ c.conv_id }}">
+          <span>{{ c.title }}</span>{% if c.in_project %}<em>in “{{ c.in_project }}”</em>{% endif %}
+        </button>
+        {% endfor %}
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>Files <span class="muted">({{ files|length }})</span></h2>
+    {% for f in files %}
+    <div class="prow" data-id="{{ f.ref_id }}">
+      <span><a href="/archive/reference/{{ f.ref_id }}">{{ f.filename }}</a>
+        <span class="muted"> · {{ f.length }} chars{% if f.get('is_summary') %} · session checkpoint{% endif %}</span></span>
+      <button class="ghost small act-remove-file" type="button" title="Take out of this project">remove</button>
+    </div>
+    {% else %}
+    <p class="muted">No files yet.</p>
+    {% endfor %}
+    <div class="formrow" style="margin-top:.8rem">
+      <button class="gold" id="pupload" type="button">Upload a document</button>
+      <input type="file" id="pfile" accept=".txt,.md,.markdown,.pdf" hidden>
+      <span class="muted" id="pupmsg"></span>
+    </div>
+    <details class="adder">
+      <summary>Add from her Corpus (unfiled documents)</summary>
+      <input type="search" class="adderfilter" placeholder="Filter" autocomplete="off">
+      <div class="addlist" data-kind="file">
+        {% for r in loose_files %}
+        <button type="button" class="addrow" data-id="{{ r.ref_id }}"><span>{{ r.filename }}</span></button>
+        {% endfor %}
+      </div>
+    </details>
+  </section>
+</div>
+<script>
+(function () {
+  const root = document.getElementById('projroot'), PID = root.dataset.proj;
+  const $ = (id) => document.getElementById(id);
+  const post = (url, body, method) => fetch(url, {method: method || 'POST',
+    headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined})
+    .then(r => r.json()).catch(() => ({ok: false, error: 'Network error.'}));
+
+  $('pnewchat').addEventListener('click', async () => {
+    const d = await post(`/api/projects/${PID}/conversations`);
+    if (d.ok) location.href = '/?c=' + d.conv_id;
+  });
+  $('pedit').addEventListener('click', () => { $('peditform').hidden = false; $('pename').focus(); });
+  $('pecancel').addEventListener('click', () => { $('peditform').hidden = true; });
+  $('peditform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = await post(`/api/projects/${PID}/update`,
+      {name: $('pename').value, blurb: $('peblurb').value});
+    if (d.ok) { $('ptitle').textContent = d.name; $('pblurb').textContent = d.blurb;
+      document.title = d.name + ' · Seira'; $('peditform').hidden = true; }
+    else $('peerr').textContent = d.error || 'Failed.';
+  });
+
+  // Two-tap confirm instead of confirm() (native dialogs hang on mobile).
+  root.addEventListener('click', async (e) => {
+    const rm = e.target.closest('.act-remove-chat, .act-remove-file');
+    if (rm) {
+      if (!rm.classList.contains('confirming')) {
+        rm.classList.add('confirming'); rm.textContent = 'tap again';
+        setTimeout(() => { rm.classList.remove('confirming'); rm.textContent = 'remove'; }, 3000);
+        return;
+      }
+      const row = rm.closest('.prow'), id = row.dataset.id;
+      const d = rm.classList.contains('act-remove-chat')
+        ? await post(`/api/conversations/${id}/project`, {proj_id: null})
+        : await post(`/api/projects/${PID}/files/${id}`, null, 'DELETE');
+      if (d.ok) row.remove();
+      return;
+    }
+    const add = e.target.closest('.addrow');
+    if (add) {
+      const kind = add.parentElement.dataset.kind, id = add.dataset.id;
+      add.disabled = true;
+      const d = kind === 'chat'
+        ? await post(`/api/conversations/${id}/project`, {proj_id: PID})
+        : await post(`/api/projects/${PID}/files/${id}`);
+      if (d.ok) location.reload(); else { add.disabled = false; alert(d.error || 'Failed.'); }
+    }
+  });
+  document.querySelectorAll('.adderfilter').forEach(inp => inp.addEventListener('input', () => {
+    const q = inp.value.trim().toLowerCase();
+    inp.nextElementSibling.querySelectorAll('.addrow').forEach(b =>
+      b.hidden = !!q && !b.textContent.toLowerCase().includes(q));
+  }));
+
+  $('pupload').addEventListener('click', () => $('pfile').click());
+  $('pfile').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    $('pupmsg').textContent = 'Uploading ' + f.name + '…';
+    const fd = new FormData(); fd.append('file', f);
+    try {
+      const r = await fetch(`/api/projects/${PID}/upload`, {method: 'POST', body: fd});
+      const d = await r.json();
+      if (d.ok) location.reload(); else $('pupmsg').textContent = d.error || 'Upload failed.';
+    } catch (err) { $('pupmsg').textContent = 'Upload failed: ' + err; }
+  });
+})();
+</script>
+{% endblock %}

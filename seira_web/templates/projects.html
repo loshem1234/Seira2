@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block body %}
+<div class="frame portal">
+  <div class="portalhead">
+    <h1 class="portaltitle">Projects</h1>
+    <button class="gold" id="newproj" type="button">+ New project</button>
+  </div>
+  <form class="card newprojform" id="newprojform" hidden>
+    <input id="npname" placeholder="Project name" maxlength="200" autocomplete="off">
+    <input id="npblurb" placeholder="One line about it (optional)" maxlength="240" autocomplete="off">
+    <div class="formrow">
+      <button class="gold" type="submit">Create</button>
+      <button type="button" class="ghost" id="npcancel">Cancel</button>
+      <span class="muted" id="nperr"></span>
+    </div>
+  </form>
+  <div class="portalbar">
+    <input type="search" id="projsearch" placeholder="Search projects" autocomplete="off">
+    <div class="chips" id="projfilter">
+      <button class="chip active" data-f="all">All</button>
+      <button class="chip" data-f="self">By Seira</button>
+      <button class="chip" data-f="requested">Mine</button>
+    </div>
+  </div>
+  <div class="projgrid" id="projgrid">
+    {% for p in projects %}
+    <a class="projcard" href="/projects/{{ p.proj_id }}" data-init="{{ p.get('initiative', 'self') }}"
+       data-text="{{ (p.name ~ ' ' ~ p.get('blurb','') ~ ' ' ~ p.tag)|lower }}">
+      <div class="projname">{{ p.name }}</div>
+      <div class="projblurb">{{ p.blurb or 'No description yet.' }}</div>
+      <div class="projmeta">
+        {% if p.get('initiative', 'self') == 'self' %}<span class="badge">by Seira</span>{% endif %}
+        <span>{{ p.chat_count }} chat{{ '' if p.chat_count == 1 else 's' }}</span>
+        <span>{{ p.file_count }} file{{ '' if p.file_count == 1 else 's' }}</span>
+        <span class="when" data-iso="{{ p.updated }}"></span>
+      </div>
+    </a>
+    {% else %}
+    <p class="muted">No projects yet — create one, or let Seira start her own.</p>
+    {% endfor %}
+  </div>
+  <p class="muted" id="noproj" hidden>No project matches.</p>
+</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  document.querySelectorAll('.when').forEach(el => {
+    const d = new Date(el.dataset.iso); if (isNaN(d)) return;
+    const days = Math.floor((Date.now() - d) / 86400000);
+    el.textContent = days < 1 ? 'updated today' : days === 1 ? 'updated yesterday'
+      : days < 31 ? `updated ${days}d ago` : 'updated ' + d.toLocaleDateString();
+  });
+  let f = 'all';
+  function apply() {
+    const q = $('projsearch').value.trim().toLowerCase(); let n = 0;
+    document.querySelectorAll('.projcard').forEach(c => {
+      const ok = (f === 'all' || c.dataset.init === f) && (!q || c.dataset.text.includes(q));
+      c.hidden = !ok; if (ok) n++;
+    });
+    $('noproj').hidden = n > 0 || !document.querySelector('.projcard');
+  }
+  $('projsearch').addEventListener('input', apply);
+  $('projfilter').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    f = b.dataset.f;
+    document.querySelectorAll('#projfilter .chip').forEach(x => x.classList.toggle('active', x === b));
+    apply();
+  });
+  $('newproj').addEventListener('click', () => { $('newprojform').hidden = false; $('npname').focus(); });
+  $('npcancel').addEventListener('click', () => { $('newprojform').hidden = true; });
+  $('newprojform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = $('npname').value.trim();
+    if (!name) { $('nperr').textContent = 'Give it a name.'; return; }
+    const r = await fetch('/api/projects', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, blurb: $('npblurb').value.trim()})});
+    const d = await r.json();
+    if (d.ok) location.href = '/projects/' + d.proj_id; else $('nperr').textContent = d.error || 'Failed.';
+  });
+})();
+</script>
+{% endblock %}

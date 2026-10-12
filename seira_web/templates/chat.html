@@ -3,6 +3,7 @@
 {% block bodyclass %}locked{% endblock %}
 {% block body %}
 <button class="edgetab" id="edgetab" aria-label="Toggle conversation history" title="History">‹</button>
+<div class="projmenu" id="projmenu" hidden></div>
 <div class="shell" id="shell">
   <div class="backdrop" id="backdrop"></div>
   <aside class="sidebar" id="sidebar">
@@ -20,7 +21,7 @@
     <div class="convolist" id="convolist">
     {% for c in conversations %}
     <div class="convo-row {{ 'active' if c.conv_id == active_id else '' }}"
-         data-conv-id="{{ c.conv_id }}" data-updated="{{ c.updated }}">
+         data-conv-id="{{ c.conv_id }}" data-updated="{{ c.updated }}" data-project="{{ c.project or '' }}">
       <a class="convo" href="/?c={{ c.conv_id }}"
          {% if c.summary_bullets %}title="{{ c.summary_bullets|join(' · ') }}"{% endif %}
          >{{ c.title }}</a>
@@ -31,6 +32,10 @@
             d="M4 5h16v2H4V5zm0 6h16v2H4v-2zm0 6h10v2H4v-2z"/></svg>
         </button>
         {% endif %}
+        <button class="convoicon act-project" title="Move to project" aria-label="Move to project">
+          <svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor"
+            d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
+        </button>
         <button class="convoicon act-rename" title="Rename" aria-label="Rename conversation">
           <svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor"
             d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -50,6 +55,7 @@
     {% endfor %}
     </div>
     <nav class="railnav" aria-label="Sections">
+      <a href="/projects" class="railprojects">Projects</a>
       <a href="/diary">Her Diary</a>
       <a href="/weekly-notes">Her Weekly Notes</a>
       <a href="/archive">Archive</a>
@@ -77,6 +83,7 @@
     <header class="chathead">
       <button class="railbtn" id="railbtn" type="button" aria-label="Conversations and menu">
         <span></span><span></span><span></span></button>
+      <a class="crumb" id="crumb" href="#" hidden></a>
       <div class="chattitle" id="chattitle">{% for c in conversations %}{% if c.conv_id == active_id %}{{ c.title }}{% endif %}{% endfor %}</div>
       <div class="statuschip" id="autonomybar" hidden>
         <button class="chipbtn" id="chipbtn" type="button" aria-expanded="false">
@@ -611,7 +618,7 @@ document.getElementById('backdrop').addEventListener('click', () => setSidebar(f
 // Replaces the earlier capture-phase #chatcol/#msgs listeners, which
 // should have worked but evidently didn't reliably in practice.
 document.addEventListener('click', (e) => {
-  if (window.innerWidth > 800) return;  // desktop: the rail stays put
+  if (window.innerWidth > 800 || e.target.closest('#projmenu')) return;  // desktop: the rail stays put
   if (shell.classList.contains('sidebar-collapsed')) return;  // already closed
   if (e.target.closest('#sidebar') || e.target.closest('#edgetab') || e.target.closest('#railbtn')) return;
   setSidebar(false);
@@ -638,6 +645,55 @@ document.getElementById('railbtn').addEventListener('click', () =>
     else if (!closed && dx < 0) setSidebar(false);
   }, {passive: true});
 })();
+
+// Projects: file a conversation under a project from the rail (folder icon).
+const PROJECTS = {{ projects | default([]) | tojson }};
+const projmenu = document.getElementById('projmenu');
+const crumb = document.getElementById('crumb');
+function projName(id) { const p = PROJECTS.find(x => x.proj_id === id); return p ? p.name : ''; }
+function paintCrumb() {
+  const row = document.querySelector(`.convo-row[data-conv-id="${CONV}"]`);
+  const pid = row ? row.dataset.project : '';
+  if (pid && projName(pid)) {
+    crumb.href = '/projects/' + pid; crumb.textContent = '\u25B8 ' + projName(pid); crumb.hidden = false;
+  } else crumb.hidden = true;
+}
+function paintRowProject(row) {
+  const n = projName(row.dataset.project);
+  const a = row.querySelector('.convo');
+  if (a) a.title = n ? 'Project: ' + n : '';
+}
+document.querySelectorAll('.convo-row').forEach(paintRowProject);
+paintCrumb();
+function closeProjMenu() { projmenu.hidden = true; }
+document.addEventListener('click', (e) => {
+  if (!projmenu.hidden && !e.target.closest('#projmenu') && !e.target.closest('.act-project')) closeProjMenu();
+});
+sidebar.addEventListener('click', (e) => {
+  const btn = e.target.closest('.act-project'); if (!btn) return;
+  e.preventDefault(); e.stopPropagation();
+  const row = btn.closest('.convo-row'), convId = row.dataset.convId;
+  const cur = row.dataset.project || '';
+  const mk = (id, label) => `<button type="button" data-p="${esc(id)}" class="${id === cur ? 'on' : ''}">${esc(label)}</button>`;
+  projmenu.innerHTML = '<div class="pmhead">Move to project</div>'
+    + (PROJECTS.length ? PROJECTS.map(p => mk(p.proj_id, p.name)).join('') : '<div class="pmempty">No projects yet.</div>')
+    + (cur ? mk('', 'Remove from project') : '')
+    + '<a class="pmnew" href="/projects">Manage projects \u2192</a>';
+  const r = btn.getBoundingClientRect();
+  projmenu.hidden = false;
+  const w = projmenu.offsetWidth, h = projmenu.offsetHeight;
+  projmenu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+  projmenu.style.top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - h - 8)) + 'px';
+  projmenu.onclick = async (ev) => {
+    const b = ev.target.closest('button[data-p]'); if (!b) return;
+    const pid = b.dataset.p;
+    const resp = await fetch(`/api/conversations/${convId}/project`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({proj_id: pid || null})});
+    const d = await resp.json();
+    if (d.ok) { row.dataset.project = d.proj_id || ''; paintRowProject(row); paintCrumb(); }
+    closeProjMenu();
+  };
+}, true);
 
 // Rail: group conversations by recency, and filter as you type.
 (function () {
