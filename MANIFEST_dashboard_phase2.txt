@@ -1,0 +1,10 @@
+Seira dashboard — Phase 2 (Projects tab). Add/replace these files:
+  seira_web/projects_portal.py            (NEW)
+  seira_web/projects.py
+  seira_web/app.py
+  seira_web/templates/base.html
+  seira_web/templates/chat.html
+  seira_web/templates/projects.html       (NEW)
+  seira_web/templates/project.html        (NEW)
+  seira_web/static/style.css
+  tests/seira_core/test_projects_portal.py (NEW, optional)
