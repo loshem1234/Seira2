@@ -4,6 +4,25 @@
 {% block body %}
 <button class="edgetab" id="edgetab" aria-label="Toggle conversation history" title="History">‹</button>
 <div class="projmenu" id="projmenu" hidden></div>
+<div class="modalback" id="splitmodal" hidden>
+  <div class="modalbox smallbox" role="dialog" aria-modal="true" aria-labelledby="splittitle">
+    <div class="modalhead"><span id="splittitle">Split conversation</span>
+      <button class="modalx" id="splitx" type="button" aria-label="Close">&times;</button></div>
+    <p class="splittext">This message and everything after it will move into a <b>new conversation</b>
+      (in the same project). This conversation keeps everything before it.
+      Nothing is deleted &mdash; the moved part stays in her record.</p>
+    <div class="splitpreview" id="splitpreview"></div>
+    <label class="splitlabel" for="splitname">Name for the new conversation</label>
+    <input id="splitname" maxlength="80" autocomplete="off">
+    <div class="modalfoot">
+      <span class="muted" id="spliterr"></span>
+      <span class="modalbtns">
+        <button class="ghost" id="splitcancel" type="button">Cancel</button>
+        <button class="gold" id="splitgo" type="button">Split here</button>
+      </span>
+    </div>
+  </div>
+</div>
 <div class="modalback" id="editmodal" hidden>
   <div class="modalbox" role="dialog" aria-modal="true" aria-labelledby="editmodaltitle">
     <div class="modalhead">
@@ -38,7 +57,7 @@
     <div class="convolist" id="convolist">
     {% for c in conversations %}
     <div class="convo-row {{ 'active' if c.conv_id == active_id else '' }}"
-         data-conv-id="{{ c.conv_id }}" data-updated="{{ c.updated }}" data-project="{{ c.project or '' }}">
+         data-conv-id="{{ c.conv_id }}" data-updated="{{ c.listed_at or c.updated }}" data-project="{{ c.project or '' }}">
       <a class="convo" href="/?c={{ c.conv_id }}"
          {% if c.summary_bullets %}title="{{ c.summary_bullets|join(' · ') }}"{% endif %}
          >{{ c.title }}</a>
@@ -125,6 +144,7 @@
           <span class="body">{{ r.text }}</span>
           <div class="actions">
             <button class="iconbtn act-edit">edit</button>
+            <button class="iconbtn act-split" title="Move this message and everything after it into a new conversation">split here</button>
             <button class="iconbtn act-copy">copy</button>
           </div></div>
         {% elif r.kind == 'assistant' %}
@@ -265,6 +285,7 @@ function addUser(text, imgSrc) {
   const node = el(`<div class="msg user"><div class="who">You</div>${imgHtml}
     <span class="body">${esc(text)}</span>
     <div class="actions"><button class="iconbtn act-edit">edit</button>
+    <button class="iconbtn act-split" title="Move this message and everything after it into a new conversation">split here</button>
     <button class="iconbtn act-copy">copy</button></div></div>`);
   msgs.appendChild(node); lastUserEl = node; scrollEnd();
 }
@@ -548,6 +569,43 @@ function editDialog(initial) {
   });
 }
 
+// Split this conversation at one of my messages: it and everything after
+// it move to a new conversation. In-page dialog, no browser prompts.
+function openSplit(targetId, text) {
+  const modal = document.getElementById('splitmodal');
+  const name = document.getElementById('splitname');
+  const err = document.getElementById('spliterr');
+  const clean = (text || '').trim().replace(/\s+/g, ' ');
+  document.getElementById('splitpreview').textContent =
+    clean.length > 160 ? clean.slice(0, 160) + '\u2026' : clean;
+  name.value = clean.slice(0, 60); err.textContent = '';
+  modal.hidden = false; document.body.classList.add('modalopen');
+  requestAnimationFrame(() => { name.focus(); name.select(); });
+  const close = () => { modal.hidden = true; document.body.classList.remove('modalopen');
+    document.removeEventListener('keydown', onKey, true); };
+  const go = async () => {
+    const btn = document.getElementById('splitgo'); btn.disabled = true; err.textContent = '';
+    try {
+      const r = await fetch(`/api/conversations/${CONV}/split`, {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({target_id: targetId, title: name.value.trim()})});
+      const d = await r.json();
+      if (d.ok) { location.href = '/?c=' + d.conv_id; return; }
+      err.textContent = d.error || 'Could not split.';
+    } catch (e) { err.textContent = 'Network error.'; }
+    btn.disabled = false;
+  };
+  const onKey = (ev) => {
+    if (ev.key === 'Escape') { ev.preventDefault(); close(); }
+    else if (ev.key === 'Enter' && document.activeElement === name) { ev.preventDefault(); go(); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  document.getElementById('splitgo').onclick = go;
+  document.getElementById('splitcancel').onclick = close;
+  document.getElementById('splitx').onclick = close;
+  modal.onclick = (ev) => { if (ev.target === modal) close(); };
+}
+
 msgs.addEventListener('click', async (e) => {
   const codeBtn = e.target.closest('.copycode');
   if (codeBtn) {
@@ -563,6 +621,12 @@ msgs.addEventListener('click', async (e) => {
     if (bodyEl) { const clone = bodyEl.cloneNode(true);
       clone.querySelectorAll('.codebar').forEach(n => n.remove());
       text = clone.textContent || ''; } }
+  if (btn.classList.contains('act-split')) {
+    const id = parseInt(msg.dataset.id || '0');
+    if (!id) { addChip('Still recording that message \u2014 try again in a moment.'); return; }
+    openSplit(id, text);
+    return;
+  }
   if (btn.classList.contains('act-copy')) {
     await navigator.clipboard.writeText(text);
     btn.textContent = 'copied'; setTimeout(()=>btn.textContent='copy', 1200);

@@ -3,6 +3,7 @@
 {% block content %}
 <div class="frame portal" data-proj="{{ proj.proj_id }}" id="projroot">
   <a class="backlink" href="/projects">‹ Projects</a>
+  {% if parent %}<a class="backlink" href="/projects/{{ parent.proj_id }}"> / {{ parent.name }}</a>{% endif %}
   <div class="portalhead">
     <div class="projtitlewrap">
       <h1 class="portaltitle" id="ptitle">{{ proj.name }}</h1>
@@ -26,6 +27,40 @@
       <span class="muted" id="peerr"></span>
     </div>
   </form>
+
+  <section class="card" id="groupcard">
+    <h2>Grouping</h2>
+    {% if children %}
+      <p class="muted" style="margin-top:0">This is a higher project. Projects inside it:</p>
+      {% for c in children %}
+      <div class="prow" data-id="{{ c.proj_id }}">
+        <a href="/projects/{{ c.proj_id }}">{{ c.name }}</a>
+        <button class="ghost small act-ungroup" type="button">take out</button>
+      </div>
+      {% endfor %}
+    {% elif parent %}
+      <p style="margin-top:0">Part of <a href="/projects/{{ parent.proj_id }}">{{ parent.name }}</a>.</p>
+      <button class="ghost small act-ungroup-self" type="button">Take out of this group</button>
+    {% else %}
+      <p class="muted" style="margin-top:0">Not grouped. A higher project holds related projects together — and Seira sees the grouping.</p>
+    {% endif %}
+    {% if eligible_children %}
+    <details class="adder">
+      <summary>Add projects inside this one</summary>
+      <div class="addlist" data-kind="child">
+        {% for p in eligible_children %}<button type="button" class="addrow" data-id="{{ p.proj_id }}"><span>{{ p.name }}</span></button>{% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% if eligible_parents %}
+    <details class="adder">
+      <summary>Put this project inside a higher project</summary>
+      <div class="addlist" data-kind="parent">
+        {% for p in eligible_parents %}<button type="button" class="addrow" data-id="{{ p.proj_id }}"><span>{{ p.name }}</span></button>{% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  </section>
 
   <section class="card">
     <h2>Conversations <span class="muted">({{ chats|length }})</span></h2>
@@ -116,7 +151,23 @@
       if (d.ok) row.remove();
       return;
     }
+    const ug = e.target.closest('.act-ungroup, .act-ungroup-self');
+    if (ug) {
+      const isSelf = ug.classList.contains('act-ungroup-self');
+      const cid = isSelf ? PID : ug.closest('.prow').dataset.id;
+      const d = await post(`/api/projects/${cid}/parent`, {parent_id: null});
+      if (d.ok) location.reload(); else alert(d.error || 'Failed.');
+      return;
+    }
     const add = e.target.closest('.addrow');
+    if (add && (add.parentElement.dataset.kind === 'child' || add.parentElement.dataset.kind === 'parent')) {
+      const kind = add.parentElement.dataset.kind, id = add.dataset.id;
+      const d = kind === 'child'
+        ? await post(`/api/projects/${id}/parent`, {parent_id: PID})
+        : await post(`/api/projects/${PID}/parent`, {parent_id: id});
+      if (d.ok) location.reload(); else alert(d.error || 'Failed.');
+      return;
+    }
     if (add) {
       const kind = add.parentElement.dataset.kind, id = add.dataset.id;
       add.disabled = true;

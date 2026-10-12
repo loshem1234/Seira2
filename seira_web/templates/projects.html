@@ -23,9 +23,8 @@
       <button class="chip" data-f="requested">Mine</button>
     </div>
   </div>
-  <div class="projgrid" id="projgrid">
-    {% for p in projects %}
-    <a class="projcard" href="/projects/{{ p.proj_id }}" data-init="{{ p.get('initiative', 'self') }}"
+  {% macro card(p, sub=false) %}
+    <a class="projcard {{ 'subcard' if sub }}" href="/projects/{{ p.proj_id }}" data-init="{{ p.get('initiative', 'self') }}"
        data-text="{{ (p.name ~ ' ' ~ p.get('blurb','') ~ ' ' ~ p.tag)|lower }}">
       <div class="projname">{{ p.name }}</div>
       <div class="projblurb">{{ p.blurb or 'No description yet.' }}</div>
@@ -36,9 +35,31 @@
         <span class="when" data-iso="{{ p.updated }}"></span>
       </div>
     </a>
-    {% else %}
-    <p class="muted">No projects yet — create one, or let Seira start her own.</p>
+  {% endmacro %}
+  <div id="projgrid">
+    {% for g in projects if not g.get('parent') and g.child_count %}
+    <section class="projgroup">
+      <div class="grouphead">
+        <a class="groupname" href="/projects/{{ g.proj_id }}">{{ g.name }}</a>
+        <span class="muted">higher project · {{ g.child_count }} inside</span>
+      </div>
+      {% if g.blurb %}<div class="groupblurb">{{ g.blurb }}</div>{% endif %}
+      <div class="projgrid">
+        {% for c in projects if c.get('parent') == g.proj_id %}{{ card(c, true) }}{% endfor %}
+      </div>
+    </section>
     {% endfor %}
+    {% set loose2 = [] %}
+    {% for p in projects if not p.get('parent') and not p.child_count %}{% if loose2.append(p) %}{% endif %}{% endfor %}
+    {% if loose2 %}
+    <section class="projgroup ungrouped">
+      {% if projects|selectattr('child_count')|list %}<div class="grouphead"><span class="groupname dim">Not in a group</span></div>{% endif %}
+      <div class="projgrid">
+        {% for p in loose2 %}{{ card(p) }}{% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% if not projects %}<p class="muted">No projects yet — create one, or let Seira start her own.</p>{% endif %}
   </div>
   <p class="muted" id="noproj" hidden>No project matches.</p>
 </div>
@@ -57,6 +78,9 @@
     document.querySelectorAll('.projcard').forEach(c => {
       const ok = (f === 'all' || c.dataset.init === f) && (!q || c.dataset.text.includes(q));
       c.hidden = !ok; if (ok) n++;
+    });
+    document.querySelectorAll('.projgroup').forEach(g => {
+      g.hidden = !g.querySelector('.projcard:not([hidden])');
     });
     $('noproj').hidden = n > 0 || !document.querySelector('.projcard');
   }
