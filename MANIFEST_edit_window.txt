@@ -1,0 +1,4 @@
+Seira — in-page Edit message window. Replace:
+  seira_web/templates/chat.html
+  seira_web/static/style.css
+(Both include Phases 1–3 changes; deploy after those.)
