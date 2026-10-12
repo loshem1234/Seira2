@@ -4,6 +4,23 @@
 {% block body %}
 <button class="edgetab" id="edgetab" aria-label="Toggle conversation history" title="History">‹</button>
 <div class="projmenu" id="projmenu" hidden></div>
+<div class="modalback" id="editmodal" hidden>
+  <div class="modalbox" role="dialog" aria-modal="true" aria-labelledby="editmodaltitle">
+    <div class="modalhead">
+      <span id="editmodaltitle">Edit message</span>
+      <button class="modalx" id="editcancelx" type="button" aria-label="Close">&times;</button>
+    </div>
+    <textarea id="edittext" spellcheck="true"></textarea>
+    <div class="modalfoot">
+      <span class="muted" id="editmeta"></span>
+      <span class="modalbtns">
+        <button class="ghost" id="editcancel" type="button">Cancel</button>
+        <button class="gold" id="editsave" type="button">Save &amp; resend</button>
+      </span>
+    </div>
+    <div class="muted modalnote">The original stays in her record. Ctrl/Cmd + Enter saves, Esc cancels.</div>
+  </div>
+</div>
 <div class="shell" id="shell">
   <div class="backdrop" id="backdrop"></div>
   <aside class="sidebar" id="sidebar">
@@ -492,6 +509,45 @@ function sendNow() {
   stream(body);
 }
 
+// In-page edit window (replaces the browser's prompt box): full message,
+// scrollable and resizable, same look as the rest of the site.
+function editDialog(initial) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('editmodal');
+    const ta = document.getElementById('edittext');
+    const meta = document.getElementById('editmeta');
+    ta.value = initial;
+    const count = () => { meta.textContent =
+      `${ta.value.length.toLocaleString()} characters`; };
+    count();
+    modal.hidden = false; document.body.classList.add('modalopen');
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+      ta.scrollTop = 0; });
+    const done = (val) => {
+      modal.hidden = true; document.body.classList.remove('modalopen');
+      ta.removeEventListener('input', count);
+      document.removeEventListener('keydown', onKey, true);
+      modal.removeEventListener('click', onBack);
+      document.getElementById('editsave').onclick = null;
+      document.getElementById('editcancel').onclick = null;
+      document.getElementById('editcancelx').onclick = null;
+      resolve(val);
+    };
+    const save = () => done(ta.value.trim() ? ta.value : null);
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); done(null); }
+      else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); save(); }
+    };
+    const onBack = (ev) => { if (ev.target === modal) done(null); };
+    ta.addEventListener('input', count);
+    document.addEventListener('keydown', onKey, true);
+    modal.addEventListener('click', onBack);
+    document.getElementById('editsave').onclick = save;
+    document.getElementById('editcancel').onclick = () => done(null);
+    document.getElementById('editcancelx').onclick = () => done(null);
+  });
+}
+
 msgs.addEventListener('click', async (e) => {
   const codeBtn = e.target.closest('.copycode');
   if (codeBtn) {
@@ -521,7 +577,7 @@ msgs.addEventListener('click', async (e) => {
       addChip('Still recording that message — try editing again in a moment.');
       return;
     }
-    const edited = prompt('Edit your message (the original stays in her record):', text);
+    const edited = await editDialog(text);
     if (edited === null || !edited.trim()) return;
     while (msg.nextSibling) msg.nextSibling.remove();
     msg.querySelector('.body').textContent = edited;
