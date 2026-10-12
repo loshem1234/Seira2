@@ -310,6 +310,8 @@ def create_app(llm_client_factory=None) -> FastAPI:
 
     from seira_web import projects_portal
     projects_portal.register(app, templates, require_account)
+    from seira_web import voice_portal
+    voice_portal.register(app, templates, require_account)
 
     @app.post("/api/conversations")
     def new_conversation(account: dict = Depends(require_account)):
