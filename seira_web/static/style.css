@@ -613,3 +613,12 @@ button.ghost.confirming { color: var(--rust); border-color: var(--rust); }
   .headbtns { width: 100%; } .headbtns button { flex: 1; }
   .crumb { display: none; }
 }
+
+/* ═══ Phase 3 — every section inside the same shell ═══════════════════ */
+.shellmain { flex: 1 1 auto; min-height: 0; overflow-y: auto; position: relative; z-index: 1;
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.railbrand { text-decoration: none; }
+.railnav a.current { color: var(--gold-bright); background: rgba(212,175,55,.1); }
+body.locked .convolist .convo { display: block; }
+.shellmain .frame { padding-top: 1.2rem; }
