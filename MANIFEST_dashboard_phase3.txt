@@ -1,0 +1,14 @@
+Seira dashboard — Phase 3 (every section inside the immersive shell). Add/replace:
+  seira_web/templates/shell.html            (NEW)
+  seira_web/static/rail.js                  (NEW)
+  seira_web/projects_portal.py              (adds /api/rail)
+  seira_web/static/style.css
+  seira_web/templates/projects.html
+  seira_web/templates/project.html
+  seira_web/templates/archive.html
+  seira_web/templates/archive_reference.html
+  seira_web/templates/diary.html
+  seira_web/templates/weekly_notes.html
+  seira_web/templates/console.html
+  seira_web/templates/commands.html
+(The six older page templates changed only in their first and third lines.)
