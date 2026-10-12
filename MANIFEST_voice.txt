@@ -1,0 +1,18 @@
+HER VOICE — Gemini TTS (her designed voice) with play buttons and auto-read
+Upload each file to the same path in GitHub.
+
+NEW
+  seira_web/voice.py          the voice service (Google call, sentence splitting, stitching, cache)
+  seira_web/voice_portal.py   the routes (/api/voice/...)
+  tests/seira_core/test_voice.py
+
+CHANGED
+  seira_web/app.py                  registers the voice routes (2 lines)
+  seira_web/templates/chat.html     "read aloud" now uses her voice; stop on 2nd tap; Auto-read toggle in header
+  seira_web/templates/commands.html new "Her voice" card (load voices, choose, delivery note, hear a sample)
+  seira_web/static/style.css        small styles (appended)
+  Dockerfile.sanctum                installs the optional MP3 encoder (build never fails if it is missing)
+
+RAILWAY VARIABLE (you add it, never in the repo)
+  GEMINI_API_KEY   your Google AI Studio key (project must have billing on)
+  (optional) SEIRA_VOICE_ID  default voice id; the Commands page overrides it

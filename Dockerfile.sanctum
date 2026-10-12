@@ -321,6 +321,11 @@ RUN uv pip install --no-cache-dir --no-deps -e "."
 # own resolved environment.
 RUN uv pip install --no-cache-dir pypdf python-docx reportlab
 
+# Her voice (seira_web/voice.py) stores audio as MP3 when this encoder is
+# present and falls back to WAV when it is not, so a failed install here
+# must never fail the build.
+RUN uv pip install --no-cache-dir lameenc || echo "lameenc unavailable; voice audio will be stored as WAV"
+
 # Wire the exec shim and install-method stamp.  Files under /opt/hermes are
 # already root-owned (COPY, uv sync, npm install all run as root) and
 # read-only for the hermes user (go-w from the --chmod above).
