@@ -672,3 +672,21 @@ body.modalopen { overflow: hidden; }
   background: rgba(10,4,22,.6); color: var(--text-dim); font-style: italic; font-size: .9rem; }
 .splitlabel { font-size: .82rem; color: var(--text-dim); margin-bottom: -.35rem; }
 #splitname { border-radius: 10px; font-size: 16px; }
+
+/* ═══ Seira's mark — golden symbol: logo pulse, chat backdrop ═══════════ */
+.sigil.markimg { width: auto; height: 42px; display: inline-block; vertical-align: middle;
+  transform-origin: 50% 40%; animation: markpulse 3.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 3px rgba(240,206,94,.35)); }
+.railbrand .sigil.markimg { height: 36px; }
+@keyframes markpulse {
+  0%, 100% { opacity: .78; transform: scale(1);    filter: drop-shadow(0 0 2px rgba(240,206,94,.25)); }
+  50%      { opacity: 1;   transform: scale(1.09); filter: drop-shadow(0 0 9px rgba(240,206,94,.75)); }
+}
+/* Behind the embers (z-index 0, earlier in the DOM), behind the thread. */
+.markbg { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.markbg img { height: min(96%, 100vw * 1.2); width: auto; max-width: 100%;
+  object-fit: contain; opacity: .34; }
+@media (max-width: 760px) { .markbg img { opacity: .28; height: 92%; max-width: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .sigil.markimg { animation: none !important; } }
