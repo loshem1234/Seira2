@@ -533,3 +533,83 @@ body.locked .tray { border-radius: 12px; box-shadow: 0 10px 34px rgba(0,0,0,.5);
   body.locked .msg { max-width: 94%; }
   .chattitle { font-size: .85rem; }
 }
+
+/* ═══ Phase 2 — Projects ═══════════════════════════════════════════════ */
+.crumb { flex-shrink: 0; max-width: 34%; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; font-size: .8rem; color: var(--gold-dim);
+  border: 1px solid var(--edge); border-radius: 999px; padding: .15rem .65rem; }
+.crumb[hidden] { display: none; }
+.crumb:hover { color: var(--gold-bright); border-color: var(--gold-dim); }
+.convo-row[data-project]:not([data-project=""]) .convo::before { content: "\25A4 "; color: var(--gold-dim); }
+.railnav .railprojects { grid-column: 1 / -1; color: var(--gold); letter-spacing: .12em;
+  font-variant: small-caps; }
+.projmenu { position: fixed; z-index: 70; min-width: 13rem; max-width: 18rem; max-height: 60vh;
+  overflow-y: auto; background: var(--surface); border: 1px solid var(--gold-dim);
+  border-radius: 12px; padding: .4rem; box-shadow: 0 10px 34px rgba(0,0,0,.55); }
+.projmenu[hidden] { display: none; }
+.projmenu .pmhead { padding: .3rem .6rem; font-variant: small-caps; letter-spacing: .12em;
+  font-size: .7rem; color: var(--gold-dim); }
+.projmenu button, .projmenu .pmnew { display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text); font: inherit; font-size: .9rem;
+  padding: .5rem .6rem; border-radius: 8px; cursor: pointer; }
+.projmenu button:hover, .projmenu .pmnew:hover { background: rgba(212,175,55,.1); color: var(--gold-bright); }
+.projmenu button.on { color: var(--gold-bright); box-shadow: inset 2px 0 0 var(--gold); }
+.projmenu .pmempty { padding: .4rem .6rem; color: var(--text-dim); font-size: .85rem; }
+.projmenu .pmnew { color: var(--gold-dim); font-size: .8rem; border-top: 1px solid var(--edge);
+  margin-top: .3rem; }
+
+.portal { max-width: 980px; }
+.portalhead { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 1rem; margin-bottom: 1rem; }
+.portaltitle { margin: 0; font-family: 'Cinzel Decorative', 'Cormorant Garamond', serif;
+  color: var(--gold-bright); font-size: 1.6rem; letter-spacing: .1em; font-weight: 400; }
+.portal .backlink { display: inline-block; margin-bottom: .6rem; color: var(--text-dim); font-size: .9rem; }
+.projblurbline { margin: .3rem 0 .2rem; color: var(--text); }
+.headbtns { display: flex; gap: .6rem; flex-shrink: 0; }
+.portalbar { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.1rem; }
+.portalbar input[type=search] { flex: 1 1 14rem; width: auto; border-radius: 10px; }
+.chips { display: flex; gap: .4rem; }
+.chip { background: none; border: 1px solid var(--edge); color: var(--text-dim);
+  border-radius: 999px; padding: .3rem .85rem; font: inherit; font-size: .85rem; cursor: pointer; }
+.chip.active { color: var(--gold-bright); border-color: var(--gold-dim); background: rgba(212,175,55,.08); }
+.projgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; }
+.projcard { display: flex; flex-direction: column; gap: .5rem; min-height: 9rem;
+  padding: 1rem 1.1rem; border-radius: 14px; color: var(--text);
+  border: 1px solid var(--edge); background: linear-gradient(160deg, rgba(36,18,74,.7), rgba(19,10,38,.8));
+  box-shadow: 0 6px 22px rgba(0,0,0,.28); transition: transform .15s, border-color .15s; }
+.projcard:hover { transform: translateY(-2px); border-color: var(--gold-dim); color: var(--text); }
+.projcard[hidden] { display: none; }
+.projname { font-size: 1.12rem; color: var(--gold-bright); }
+.projblurb { flex: 1; color: var(--text-dim); font-size: .92rem; display: -webkit-box;
+  -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.projmeta { display: flex; flex-wrap: wrap; gap: .3rem .8rem; font-size: .76rem; color: var(--text-dim); }
+.badge { font-size: .68rem; letter-spacing: .08em; color: var(--void); background: var(--gold);
+  border-radius: 999px; padding: 0 .5rem; }
+.newprojform { display: flex; flex-direction: column; gap: .6rem; }
+.newprojform[hidden] { display: none; }
+.formrow { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+button.ghost { background: none; border: 1px solid var(--edge); color: var(--text-dim);
+  border-radius: 8px; padding: .45rem 1rem; font: inherit; cursor: pointer; }
+button.ghost:hover { color: var(--text); border-color: var(--gold-dim); }
+button.ghost.small { padding: .2rem .65rem; font-size: .76rem; }
+button.ghost.confirming { color: var(--rust); border-color: var(--rust); }
+.portal .card h2 { margin-top: 0; }
+.prow { display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  padding: .55rem 0; border-bottom: 1px solid rgba(46,26,84,.6); }
+.prow a { overflow-wrap: anywhere; }
+.adder { margin-top: .9rem; }
+.adder summary { cursor: pointer; color: var(--gold-dim); font-size: .88rem; }
+.adder summary:hover { color: var(--gold-bright); }
+.adderfilter { margin: .6rem 0 .4rem; border-radius: 10px; }
+.addlist { max-height: 15rem; overflow-y: auto; display: flex; flex-direction: column; gap: .15rem; }
+.addrow { display: flex; justify-content: space-between; gap: .8rem; text-align: left;
+  background: none; border: none; color: var(--text); font: inherit; font-size: .92rem;
+  padding: .5rem .6rem; border-radius: 8px; cursor: pointer; }
+.addrow:hover { background: rgba(212,175,55,.08); color: var(--gold-bright); }
+.addrow em { color: var(--text-dim); font-size: .78rem; flex-shrink: 0; }
+.addrow[hidden] { display: none; }
+@media (max-width: 640px) {
+  .portalhead { flex-direction: column; }
+  .headbtns { width: 100%; } .headbtns button { flex: 1; }
+  .crumb { display: none; }
+}
